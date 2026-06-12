@@ -41,7 +41,6 @@ namespace DspUniversalDepot
     //  Patches: hook into DSP's init to add building & recipe
     // ────────────────────────────────────────────────────────────────────
 
-    [HarmonyPatch]
     public static class LDBTool_Patch
     {
         // Runs once DSP loads its local database
@@ -83,7 +82,6 @@ namespace DspUniversalDepot
     //  Patches: hook into DSP's storage logic to integrate dynamic slots
     // ────────────────────────────────────────────────────────────────────
 
-    [HarmonyPatch(typeof(StorageComponent))]
     public static class StorageComponent_Patch
     {
         /// <summary>
@@ -91,7 +89,7 @@ namespace DspUniversalDepot
         /// serve items correctly when its dynamic slot layout is queried.
         /// </summary>
         [HarmonyPrefix]
-        [HarmonyPatch("TakeItem", new Type[] { typeof(int), typeof(int), typeof(int), typeof(int) })]
+        [HarmonyPatch(typeof(StorageComponent), "TakeItem", new Type[] {  typeof(int), typeof(int), typeof(int), typeof(int)  })]
         public static bool TakeItem_Prefix(
             StorageComponent __instance,
             int filterFrom,
@@ -110,19 +108,8 @@ namespace DspUniversalDepot
         }
     }
 
-    // ────────────────────────────────────────────────────────────────────
-    //  Stub types (DSP source not bundled, only the names matter for build)
-    // ────────────────────────────────────────────────────────────────────
-
-    internal class VFPreload
-    {
-        public static Action InvokeOnLoadWorkEnded = null;
-    }
-
-    internal class StorageComponent
-    {
-        public int entityId;
-        public int TakeItem(int filterFrom, int filterTo, int desiredItemId, int desiredCount)
-            => 0;
-    }
+    // ──────────────────────────────────────────────────────────
+    //  Note: VFPreload + StorageComponent stubs are in _Stubs.cs
+    //  (only compiled when DSP_GAME_PATH is not set)
+    // ──────────────────────────────────────────────────────────
 }

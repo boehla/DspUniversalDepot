@@ -153,7 +153,6 @@ namespace DspUniversalDepot
     //  Harmony hook: fire our patches after DSP loads its data
     // ─────────────────────────────────────────────────────────────
 
-    [HarmonyPatch]
     public static class VFPreload_Patch
     {
         [HarmonyPostfix]
@@ -172,13 +171,7 @@ namespace DspUniversalDepot
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    //  Stub types for build (DSP source not bundled; only signatures
-    //  are needed for the IL compiler to resolve references)
-    // ─────────────────────────────────────────────────────────────
-
-    internal class VFPreload
-    {
-        public static event Action InvokeOnLoadWorkEnded;
-    }
+    // ──────────────────────────────────────────────────────────
+    //  Note: VFPreload stub is in _Stubs.cs
+    // ──────────────────────────────────────────────────────────
 }

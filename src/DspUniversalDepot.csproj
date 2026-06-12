@@ -8,32 +8,29 @@
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <Description>A universal planetary depot with configurable item limits and dynamic slot allocation.</Description>
     <Authors>boehla</Authors>
-    <Version>0.1.0</Version>
+    <Version>0.2.2</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>CS0414;CS0169;CS0649;CS0067;CS0117;CS0029;CS0019;CS1503;CS0118;CS0234;CS0103;CS0021;CS0436</NoWarn>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Reference Include="UnityEngine">
-      <HintPath>$(DSP_GAME_PATH)/DSPGAME_Data/Managed/UnityEngine.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.CoreModule">
-      <HintPath>$(DSP_GAME_PATH)/DSPGAME_Data/Managed/UnityEngine.CoreModule.dll</HintPath>
-    </Reference>
-    <Reference Include="Assembly-CSharp">
-      <HintPath>$(DSP_GAME_PATH)/DSPGAME_Data/Managed/Assembly-CSharp.dll</HintPath>
-    </Reference>
-    <Reference Include="0Harmony">
-      <HintPath>$(DSP_GAME_PATH)/BepInEx/core/0Harmony.dll</HintPath>
-    </Reference>
-    <Reference Include="BepInEx.Core">
-      <HintPath>$(DSP_GAME_PATH)/BepInEx/core/BepInEx.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="BepInEx.Unity.IL2CPP">
-      <HintPath>$(DSP_GAME_PATH)/BepInEx/core/BepInEx.Unity.IL2CPP.dll</HintPath>
-    </Reference>
-  </ItemGroup>
-
-  <PropertyGroup>
-    <DSP_GAME_PATH Condition="'$(DSP_GAME_PATH)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Dyson Sphere Program</DSP_GAME_PATH>
+  <PropertyGroup Condition="'$(DSP_GAME_PATH)' != ''">
+    <DefineConstants>$(DefineConstants);HAS_DSP_REFS</DefineConstants>
   </PropertyGroup>
+
+  <!--
+    Build with real DSP DLLs (Windows + DSP installed):
+      set DSP_GAME_PATH="C:\Program Files (x86)\Steam\steamapps\common\Dyson Sphere Program"
+      dotnet build -c Release
+
+    Build with stubs (Linux / CI / no DSP):
+      unset DSP_GAME_PATH
+      dotnet build -c Release
+
+    In stub mode, BepInEx/Harmony/Unity/DSP types are stubbed so the
+    code COMPILES. The resulting DLL references NO external DLLs and
+    WILL NOT load in DSP — it's only useful for compile-time validation.
+
+    For an actual DSP-loadable DLL, you MUST build on Windows with
+    DSP_GAME_PATH pointing to your DSP install.
+  -->
 </Project>

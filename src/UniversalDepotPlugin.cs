@@ -14,7 +14,7 @@ namespace DspUniversalDepot
     /// </summary>
     [BepInPlugin(GUID, NAME, VERSION)]
     [BepInProcess("DSPGAME.exe")]
-    public class UniversalDepotPlugin : BasePlugin
+    public class UniversalDepotPlugin : IL2CPPBasePlugin
     {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";

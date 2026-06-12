@@ -48,7 +48,6 @@ namespace DspUniversalDepot
     //  Harmony patches for StorageComponent (conveyor interface)
     // ─────────────────────────────────────────────────────────────
 
-    [HarmonyPatch(typeof(StorageComponent))]
     public static class PatchStorageQueries
     {
         /// <summary>
@@ -56,7 +55,7 @@ namespace DspUniversalDepot
         /// We override to consult our dynamic slot system.
         /// </summary>
         [HarmonyPrefix]
-        [HarmonyPatch(nameof(StorageComponent.GetItemCount), new[] { typeof(int) })]
+        [HarmonyPatch(typeof(StorageComponent), "GetItemCount", new Type[] { typeof(int)  })]
         public static bool GetItemCount_Prefix(
             StorageComponent __instance,
             int itemId,
@@ -74,7 +73,7 @@ namespace DspUniversalDepot
         /// Take up to `count` items of `itemId`. We serve from our storage.
         /// </summary>
         [HarmonyPrefix]
-        [HarmonyPatch(nameof(StorageComponent.TakeItem))]
+        [HarmonyPatch(typeof(StorageComponent), "TakeItem")]
         public static bool TakeItem_Prefix(
             StorageComponent __instance,
             int filterFrom,
@@ -95,7 +94,7 @@ namespace DspUniversalDepot
         /// Insert items into the depot. Honors dynamic-slot + overflow rules.
         /// </summary>
         [HarmonyPrefix]
-        [HarmonyPatch(nameof(StorageComponent.AddItem))]
+        [HarmonyPatch(typeof(StorageComponent), "AddItem")]
         public static bool AddItem_Prefix(
             StorageComponent __instance,
             int itemId,
@@ -127,15 +126,7 @@ namespace DspUniversalDepot
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    //  Stub StorageComponent for compile
-    // ─────────────────────────────────────────────────────────────
-
-    internal class StorageComponent
-    {
-        public int entityId;
-        public int GetItemCount(int itemId) => 0;
-        public int TakeItem(int filterFrom, int filterTo, int desiredItemId, int desiredCount) => 0;
-        public int AddItem(int itemId, int count) => 0;
-    }
+    // ──────────────────────────────────────────────────────────
+    //  Note: StorageComponent stub is in _Stubs.cs
+    // ──────────────────────────────────────────────────────────
 }

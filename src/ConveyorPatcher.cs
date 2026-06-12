@@ -20,12 +20,28 @@ namespace DspUniversalDepot
     /// </summary>
     public class ConveyorPatcher
     {
+        // 3 input lanes (MK1/MK2/MK3 belts) + 3 output lanes
+        public const int INPUT_LANE_START = 0;  // port 0
+        public const int INPUT_LANE_END = 2;    // port 2
+        public const int OUTPUT_LANE_START = 3; // port 3
+        public const int OUTPUT_LANE_END = 5;   // port 5
+
         public ConveyorPatcher()
         {
             var harmony = new Harmony(UniversalDepotPlugin.GUID);
             // PatchStorageQueries applies Harmony hooks to local reads
             // (GetItemCount / TakeItem / etc.) so belts see dynamic slots.
         }
+
+        /// <summary>
+        /// Returns true if the given port index is a belt input lane.
+        /// </summary>
+        public static bool IsInputLane(int port) => port >= INPUT_LANE_START && port <= INPUT_LANE_END;
+
+        /// <summary>
+        /// Returns true if the given port index is a belt output lane.
+        /// </summary>
+        public static bool IsOutputLane(int port) => port >= OUTPUT_LANE_START && port <= OUTPUT_LANE_END;
     }
 
     // ─────────────────────────────────────────────────────────────

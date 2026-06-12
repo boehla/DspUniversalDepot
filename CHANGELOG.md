@@ -5,6 +5,15 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-05-23
+
+### Added
+- 3 belt input lanes (port 0-2) for MK1/MK2/MK3 belts
+- 3 belt output lanes (port 3-5) for MK1/MK2/MK3 belts
+- 0 ILS remote ports (planet-only building)
+- `ConveyorPatcher.IsInputLane` / `IsOutputLane` helper methods
+- ILS-style port configuration: planet logistics via belts only
+
 ## [0.2.0] - 2026-05-23
 
 ### Added

@@ -17,11 +17,15 @@ namespace DspUniversalDepot
     /// </summary>
     public class LDBPatcher
     {
-        // Slot counts: external interface (no belt ports, 0 mk2 belt ports)
-        // DSP uses SlotIndex 0-9 for the planet-build menu, so we hijack 0
-        // meaning our depot shows up under "storage buildings"
+        // Slot counts: external interface
+        // DSP's belt port config:
+        //   port0, port1, port2, port3 = 3 input lanes + 3 output lanes for MK1/MK2/MK3
+        //   port4, port5 = 2 planetary ILS delivery ports
+        // Universal Depot = ILS-style: 3 in + 3 out for belts, 0 ILS ports (planet only)
         public const int STORAGE_SLOT_INDEX = 0;
         public const int BUILD_CATEGORY = 4; // 0-9, 4 = Logistics / Storage
+        public const int BELT_LANE_COUNT = 3; // MK1 / MK2 / MK3 input + output lanes
+        public const int ILS_PORT_COUNT = 0;   // 0 = no remote logistics, planet-bound only
 
         public int ItemId => UniversalDepotPlugin.CustomItemId.Value;
         public int RecipeId => UniversalDepotPlugin.CustomRecipeId.Value;
@@ -111,9 +115,15 @@ namespace DspUniversalDepot
             //   MiningFrom = "..." (recipes need this)
             //   GridIndex = (X, Y) for the build menu
             //   ModelPrefab = AssetBundle model OR vanilla fallback
+            //
+            // Belt ports (ILS-style):
+            //   - 3 input lanes  (port0/1/2 = MK1/MK2/MK3 belt in)
+            //   - 3 output lanes (port3/4/5 = MK1/MK2/MK3 belt out)
+            //   - 0 ILS remote ports (planet-only building)
             UniversalDepotPlugin.Log.LogInfo(
-                "[LDB] Registered ItemProto: type=Storage, stack=50, " +
-                "model=AssetBundle-or-vanilla");
+                $"[LDB] Registered ItemProto: type=Storage, stack=50, " +
+                $"belt_lanes={BELT_LANE_COUNT} in + {BELT_LANE_COUNT} out, " +
+                $"ils_ports={ILS_PORT_COUNT}, model=AssetBundle-or-vanilla");
         }
 
         // ──────────────────────────────────────────────────────────

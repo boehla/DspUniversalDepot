@@ -1,15 +1,43 @@
-// Auto-generated stubs for offline build (DSP not available).
-// These types are ONLY compiled when DSP_GAME_PATH is NOT set.
-// On Windows with real DSP DLLs, this file is excluded from compilation.
-#if !HAS_DSP_REFS
-#pragma warning disable CS0067, CS0169, CS0649, CS0414
+// _Stubs.cs — minimal stub types so the plugin COMPILES without the
+// proprietary BepInEx.Core.dll (which is not distributed on NuGet or
+// GitHub releases).
+//
+// In a real DSP runtime, BepInEx's preloader loads Assembly-CSharp.dll
+// + BepInEx.Core.dll FIRST; the plugin DLL is loaded after and references
+// the REAL types via the resolver. These stubs exist only so the C#
+// compiler can produce the .dll in our Linux/CI build.
+//
+// To verify the real runtime types, build on Windows with:
+//   set DSP_GAME_PATH=...
+//   dotnet build -c Release
+// or download a real BepInEx.Core.dll from your DSP install and add
+// it to ./libs/.
 
-using System;
+#if !HAS_DSP_REFS
 
 namespace BepInEx
 {
-    [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
-    public class BepInPluginAttribute : Attribute
+    public class BasePlugin
+    {
+        public BepInEx.Logging.ManualLogSource Log { get; } =
+            new BepInEx.Logging.ManualLogSource("StubBasePlugin");
+        public BepInEx.Configuration.ConfigFile Config { get; } =
+            new BepInEx.Configuration.ConfigFile();
+        public virtual void Load() { }
+        public virtual bool Unload() => true;
+    }
+
+    public class ManualLogSource
+    {
+        public void LogInfo(object msg) { }
+        public void LogWarning(object msg) { }
+        public void LogError(object msg) { }
+        public void LogMessage(object msg) { }
+        public void LogDebug(object msg) { }
+    }
+
+    [System.AttributeUsage(System.AttributeTargets.Class)]
+    public class BepInPluginAttribute : System.Attribute
     {
         public string GUID;
         public string Name;
@@ -19,39 +47,24 @@ namespace BepInEx
             GUID = guid; Name = name; Version = version;
         }
     }
-    [AttributeUsage(AttributeTargets.Class)]
-    public class BepInProcessAttribute : Attribute
+
+    [System.AttributeUsage(System.AttributeTargets.Class)]
+    public class BepInProcessAttribute : System.Attribute
     {
-        public BepInProcessAttribute(string processName) { }
+        public string ProcessName;
+        public BepInProcessAttribute(string processName) { ProcessName = processName; }
     }
 
-    public abstract class BasePlugin
+    [System.AttributeUsage(System.AttributeTargets.Class)]
+    public class BepInDependencyAttribute : System.Attribute
     {
-        public Configuration.ConfigFile Config { get; set; } = new Configuration.ConfigFile();
-        public virtual void Load() { }
-    }
-}
-
-namespace BepInEx.Unity.IL2CPP
-{
-    public abstract class BasePlugin : BepInEx.BasePlugin
-    {
-        protected BepInEx.Logging.ManualLogSource Log { get; set; }
+        public string DependencyGUID;
+        public BepInDependencyAttribute(string guid) { DependencyGUID = guid; }
     }
 
-    // Alias used in the plugin to disambiguate
-    public abstract class IL2CPPBasePlugin : BasePlugin { }
-}
-
-namespace BepInEx.Logging
-{
-    public class ManualLogSource
+    public static class Plugin
     {
-        public ManualLogSource(string name) { }
-        public void LogInfo(object msg) { }
-        public void LogMessage(object msg) { }
-        public void LogWarning(object msg) { }
-        public void LogError(object msg) { }
+        public class LogSource { }
     }
 }
 
@@ -60,110 +73,52 @@ namespace BepInEx.Configuration
     public class ConfigFile
     {
         public ConfigEntry<T> Bind<T>(string section, string key, T defaultValue, string description)
-            => new ConfigEntry<T> { Value = defaultValue };
+            => new ConfigEntry<T>();
     }
+
     public class ConfigEntry<T>
     {
-        public T Value;
+        public T Value { get; set; }
     }
 }
 
-namespace HarmonyLib
+namespace BepInEx.Logging
 {
-    public class Harmony
-    {
-        public Harmony(string id) { }
-        public void PatchAll(System.Reflection.Assembly a) { }
-    }
-
-    [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
-    public class HarmonyPatch : Attribute
-    {
-        public Type[] Type { get; set; }
-        public string[] Name { get; set; }
-
-        public HarmonyPatch() { }
-        public HarmonyPatch(Type type) { Type = new[] { type }; }
-        public HarmonyPatch(Type type, string methodName) { Type = new[] { type }; Name = new[] { methodName }; }
-        public HarmonyPatch(Type[] types) { Type = types; }
-        public HarmonyPatch(Type[] types, string[] methodNames) { Type = types; Name = methodNames; }
-        public HarmonyPatch(Type type, string methodName, Type[] argTypes)
-        {
-            Type = new[] { type };
-            Name = new[] { methodName };
-            // argTypes would be used by Harmony at runtime; we just store for compile
-        }
-    }
-    [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
-    public class HarmonyPrefix : Attribute { }
-    [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
-    public class HarmonyPostfix : Attribute { }
-    [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
-    public class HarmonyTranspiler : Attribute { }
+    // already provided by real BepInEx.dll
 }
 
-namespace UnityEngine
+namespace BepInEx.Unity.IL2CPP
 {
-    public class Object { }
-    public class ScriptableObject : Object { }
-    public class GameObject : Object
+    public class IL2CPPBasePlugin : BepInEx.BasePlugin { }
+}
+
+// MiniJSON stub (DSP has it built-in, but we don't have DSP DLLs)
+public static class MiniJSON
+{
+    public static string Serialize(object obj) => "{}";
+    public static object Deserialize(string json) => null;
+}
+
+// DSPModSave stub
+namespace DSPModSave
+{
+    public static class SaveDataManager
     {
-        public string name;
-        public T GetComponent<T>() => default;
-    }
-    public class Component : Object
-    {
-        public GameObject gameObject;
-        public T GetComponent<T>() => default;
-    }
-    public class Texture : Object
-    {
-        public int width;
-        public int height;
-    }
-    public class Texture2D : Texture
-    {
-        public Texture2D() { }
-        public Texture2D(int w, int h) { width = w; height = h; }
-    }
-    public class Sprite
-    {
-        public Sprite(Texture2D t, Rect r, Vector2 p) { }
-        public static Sprite Create(Texture2D t, Rect r, Vector2 p) => new Sprite(t, r, p);
-    }
-    public struct Rect
-    {
-        public Rect(float x, float y, float w, float h) { }
-    }
-    public struct Vector2
-    {
-        public Vector2(float x, float y) { }
-    }
-    public class AssetBundle : Object
-    {
-        public static AssetBundle LoadFromFile(string path) => null;
-        public void Unload(bool unloadAllLoadedObjects) { }
-        public T LoadAsset<T>(string name) where T : Object => null;
+        public static void SetSaveData(string key, string data) { }
+        public static string GetSaveData(string key) => "";
     }
 }
 
-// DSP-specific stub types
-namespace DspUniversalDepot
+// UIRoot stub (DSP UI root for audio/UI)
+public class UIRoot
 {
-    // Forward declaration of VFPreload (event pattern matches real DSP)
-    public class VFPreload
-    {
-        public static event Action InvokeOnLoadWorkEnded;
-    }
+    public static UIRoot instance;
+    public UIGame uiGame;
+}
 
-    // Forward declaration of StorageComponent
-    public class StorageComponent
-    {
-        public int entityId;
-        public int GetItemCount(int itemId) => 0;
-        public int TakeItem(int filterFrom, int filterTo, int desiredItemId, int desiredCount) => 0;
-        public int AddItem(int itemId, int count) => 0;
-    }
+public class UIGame
+{
+    public void PlayAudioClip(int id) { }
 }
 
 #endif

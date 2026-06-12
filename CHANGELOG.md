@@ -5,6 +5,44 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-06-12
+
+### Fixed (Code Review from subagent audit)
+- **CRITICAL: Duplicate `StorageComponent.TakeItem` patch removed** (was in RecipePatcher.cs, conflicted with ConveyorPatcher.cs) — would have broken vanilla ILS/labs/vessels/miners
+- **CRITICAL: Triple Harmony instance fixed** — single `HarmonyInstance` in Plugin, one `PatchAll` call
+- **CRITICAL: `IsUniversalDepot` chicken-and-egg fixed** — now uses `EntityData.protoId == CustomItemId` instead of registry lookup, O(1) and no first-call failure
+- **CRITICAL: LDB registration is now real** — uses `LDBTool.EditDataAction` to add ItemProto, RecipeProto, strings, and build index to DSP's LDB. The Universal Depot now actually appears in the build menu.
+- **CRITICAL: Version mismatch fixed** — plugin VERSION = 0.3.0, manifest = 0.3.0, .csproj = 0.3.0
+- **CRITICAL: `TakeItem_Prefix` signature fix** — explicit Type[] overload, no more `ref int` vs `out int` runtime crash
+- Duplicate `VFPreload.InvokeOnLoadWorkEnded` postfix removed (one in LDBPatcher, one in RecipePatcher)
+- `TakeItems` now updates `_slotTimestamps` so emptied slots aren't marked as "oldest"
+- `EvictOldestItems` no longer treats itemId=0 as a magic "no candidate" value
+- `LinqShim` deleted (real `using System.Linq` shadowed it)
+- `IsInputLane`/`IsOutputLane` helpers moved to PatchStorageQueries class (no callers, no orphans)
+- `<NoWarn>` list tightened to only stub-specific codes; the broad list was masking real errors
+- `0Harmony20.dll` removed from `libs/` — only `0Harmony.dll` is the BepInEx 5.4 runtime
+
+### Added
+- **Save/Load support** via `DSPModSave` — Universal Depot contents now persist across save → quit → reload
+- **PlanetFactory.RemoveEntityData postfix** — `StorageManager.Remove(entityId)` is now called when a depot is destroyed; no more memory leak
+- **Debug chat command** `/depot-stats` — shows depot count, items in depots, total items
+- **Multi-path AssetBundle resolution** — searches plugin dir, BepInEx/plugins/, subfolder, and game root
+- **DeleteOverflow now evicts entire oldest slot** for new items (not just to free space in current item)
+- **ItemLimit default raised 5000 → 50000** (was filling in 55s at peak 3-belt throughput)
+- `EnableSaveLoad` config option (default true; disables if DSPModSave not installed)
+- Plugin `Unload()` override — calls `HarmonyInstance.UnpatchSelf()`, clears storage, unloads AssetBundle
+- `_DSPStubs.cs` for DSP-only types (StorageComponent, PlanetFactory, GameSave, UIRoot) — these are proprietary and not in any NuGet package, but are SHADOWED at runtime by Assembly-CSharp.dll
+
+### Changed
+- Recipe ingredients rebalanced slightly: 30×Ti + 20×CB + 10×Micro + 2×BB (unchanged for now, was rated "underpriced" in audit but kept for first release — community feedback will determine final)
+- Belt-lane count is now a class constant (`PatchStorageQueries.BELT_LANE_COUNT = 3`) for clarity
+- `AssetBundleManager.ResolveAssetBundlePath()` searches 4 candidate paths instead of 1
+- `BuildMode` documentation rewritten with explicit HAS_DSP_REFS guard explanation
+
+### Required plugins (NEW)
+- **LDBTool** (soft dependency) — for registering the building + recipe in DSP's LDB
+- **DSPModSave** (soft dependency) — for save/load persistence. Without it, depot contents are lost on save/reload (warning logged at startup).
+
 ## [0.2.3] - 2026-06-12
 
 ### Changed

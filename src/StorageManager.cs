@@ -6,10 +6,9 @@ using System.Linq;
 namespace DspUniversalDepot
 {
     /// <summary>
-    /// Manages the storage state for all Universal Depot instances.
-    /// Each item is stored in its own slot. Slots are created dynamically
-    /// when new item types arrive. Optional overflow deletion evicts old
-    /// items so conveyors never block.
+    /// Manages storage state for all Universal Depot instances.
+    /// Each unique item type gets its own slot, created on first arrival.
+    /// Optional overflow eviction deletes oldest items so belts never block.
     /// </summary>
     public class StorageManager
     {
@@ -23,7 +22,8 @@ namespace DspUniversalDepot
                 s = new DepotStorage(entityId);
                 _depots[entityId] = s;
                 if (UniversalDepotPlugin.EnableDebugLogs.Value)
-                    UniversalDepotPlugin.Log.LogMessage($"[Storage] New depot entity={entityId}");
+                    UniversalDepotPlugin.Log.LogMessage(
+                        $"[Storage] New depot entity={entityId}");
             }
             return s;
         }
@@ -33,22 +33,28 @@ namespace DspUniversalDepot
             if (_depots.Remove(entityId))
             {
                 if (UniversalDepotPlugin.EnableDebugLogs.Value)
-                    UniversalDepotPlugin.Log.LogMessage($"[Storage] Removed depot entity={entityId}");
+                    UniversalDepotPlugin.Log.LogMessage(
+                        $"[Storage] Removed depot entity={entityId}");
             }
         }
 
         public bool Contains(int entityId) => _depots.ContainsKey(entityId);
 
+        public IEnumerable<KeyValuePair<int, DepotStorage>> EnumerateAllDepots()
+            => _depots;
+
         public void Clear()
         {
+            int n = _depots.Count;
             _depots.Clear();
-            UniversalDepotPlugin.Log.LogInfo("[Storage] All depots cleared");
+            UniversalDepotPlugin.Log.LogInfo(
+                $"[Storage] All depots cleared (was {n})");
         }
     }
 
     /// <summary>
-    /// Per-depot storage state. Each slot holds one item type with a count.
-    /// Slots are created on first arrival of a new item.
+    /// Per-depot storage. itemId → count, plus a per-slot timestamp used
+    /// for overflow-eviction ordering.
     /// </summary>
     public class DepotStorage
     {
@@ -56,10 +62,11 @@ namespace DspUniversalDepot
         public int SlotCount => _slots.Count;
         public int TotalItems => _slots.Values.Sum();
 
-        // itemId → count (slot implicitly = unique itemId)
+        // itemId → count
         private readonly Dictionary<int, int> _slots = new();
 
-        // Track oldest itemId per slot for overflow eviction
+        // itemId → UTC timestamp of last access (touch on add, keep on take)
+        // Touch on take — emptied slots are NOT eviction candidates.
         private readonly Dictionary<int, DateTime> _slotTimestamps = new();
 
         public DepotStorage(int entityId)
@@ -69,8 +76,8 @@ namespace DspUniversalDepot
 
         /// <summary>
         /// Try to add `count` items of `itemId`. Returns amount that did NOT fit
-        /// (0 = all added successfully). In overflow mode, evicts old items to
-        /// accept incoming.
+        /// (0 = all added successfully). In overflow mode, evicts oldest items
+        /// to accept incoming.
         /// </summary>
         public int AddItems(int itemId, int count)
         {
@@ -78,17 +85,21 @@ namespace DspUniversalDepot
             int limit = UniversalDepotPlugin.ItemLimit.Value;
             int maxSlots = UniversalDepotPlugin.MaxSlotCount.Value;
 
-            // New item type? need a slot
+            // New item type → need a slot
             if (!_slots.ContainsKey(itemId))
             {
                 if (UniversalDepotPlugin.DynamicSlots.Value)
                 {
                     if (maxSlots > 0 && _slots.Count >= maxSlots)
                     {
-                        // No more slots allowed → block (or evict oldest slot)
+                        // No more slots allowed
                         if (UniversalDepotPlugin.DeleteOverflow.Value)
                         {
-                            EvictOldestSlot();
+                            // Evict the oldest slot to make room
+                            EvictOldestSlot(excludeItem: -1);
+                            // If still full (e.g. maxSlots=0 edge case), reject
+                            if (_slots.Count >= maxSlots)
+                                return count;
                         }
                         else
                         {
@@ -100,8 +111,7 @@ namespace DspUniversalDepot
                 }
                 else
                 {
-                    // Dynamic disabled, no slot for this item → reject
-                    return count;
+                    return count; // dynamic disabled, no slot for this item
                 }
             }
 
@@ -114,8 +124,8 @@ namespace DspUniversalDepot
             int rejected = count - toAdd;
             if (rejected > 0 && UniversalDepotPlugin.DeleteOverflow.Value)
             {
-                // Try to make room by evicting the OLDEST slot's items
-                int freed = EvictOldestItems(itemId, rejected);
+                // Evict the OLDEST slot's items to free up room
+                int freed = EvictOldestItems(excludeItem: itemId, count: rejected);
                 if (freed > 0)
                 {
                     int second = Math.Min(freed, rejected);
@@ -128,8 +138,10 @@ namespace DspUniversalDepot
         }
 
         /// <summary>
-        /// Remove `count` items of `itemId`. Returns amount removed (clamped to
-        /// current count).
+        /// Remove `count` items of `itemId`. Returns amount removed
+        /// (clamped to current count). Empty slots are NOT removed
+        /// (keeps timestamp info for future inserts) but are
+        /// de-prioritized by EvictOldestItems via a check on count.
         /// </summary>
         public int TakeItems(int itemId, int count)
         {
@@ -137,7 +149,12 @@ namespace DspUniversalDepot
             if (!_slots.TryGetValue(itemId, out var current))
                 return 0;
             int take = Math.Min(count, current);
-            _slots[itemId] = current - take;
+            int newCount = current - take;
+            _slots[itemId] = newCount;
+            // Touch timestamp so this slot doesn't get evicted as "oldest"
+            // just because it was drained by belts.
+            if (newCount > 0)
+                _slotTimestamps[itemId] = DateTime.UtcNow;
             return take;
         }
 
@@ -148,56 +165,64 @@ namespace DspUniversalDepot
 
         public IEnumerable<KeyValuePair<int, int>> AllSlots => _slots;
 
-        // ── Overflow helpers ────────────────────────────────────────
+        // ── Overflow helpers ─────────────────────────────────────
 
-        /// <summary>Evict the slot whose items were placed longest ago.</summary>
-        private void EvictOldestSlot()
+        /// <summary>
+        /// Evict the slot whose items were placed longest ago.
+        /// Optionally exclude a specific itemId (e.g. when adding to it).
+        /// </summary>
+        private void EvictOldestSlot(int excludeItem = -1)
         {
-            if (_slotTimestamps.Count == 0) return;
-            int oldest = _slotTimestamps
-                .OrderBy(kv => kv.Value)
-                .First().Key;
-            _slots.Remove(oldest);
-            _slotTimestamps.Remove(oldest);
-            if (UniversalDepotPlugin.EnableDebugLogs.Value)
-                UniversalDepotPlugin.Log.LogWarning(
-                    $"[Depot #{EntityId}] Overflow: evicted slot item={oldest}");
-        }
-
-        /// <summary>Evict items from the oldest slot to free up `count` room.</summary>
-        private int EvictOldestItems(int excludeItem, int count)
-        {
-            if (_slotTimestamps.Count <= 1) return 0; // can't evict our own
-            int oldest = _slotTimestamps
-                .Where(kv => kv.Key != excludeItem)
-                .OrderBy(kv => kv.Value)
-                .Select(kv => kv.Key)
-                .FirstOrDefault();
-            if (oldest == 0) return 0;
+            int oldest = FindOldestSlot(excludeItem);
+            if (oldest < 0) return;
             int freed = _slots[oldest];
             _slots.Remove(oldest);
             _slotTimestamps.Remove(oldest);
             if (UniversalDepotPlugin.EnableDebugLogs.Value)
                 UniversalDepotPlugin.Log.LogWarning(
-                    $"[Depot #{EntityId}] Overflow: deleted {freed}x item={oldest}");
+                    $"[Depot #{EntityId}] Overflow: evicted slot item={oldest}, " +
+                    $"freed={freed} items");
+        }
+
+        /// <summary>
+        /// Evict items from the oldest slot to free up `count` room.
+        /// Returns how many items were actually freed (the full slot
+        /// count, since eviction removes the entire slot).
+        /// </summary>
+        private int EvictOldestItems(int excludeItem, int count)
+        {
+            int oldest = FindOldestSlot(excludeItem);
+            if (oldest < 0) return 0;
+            int freed = _slots[oldest];
+            _slots.Remove(oldest);
+            _slotTimestamps.Remove(oldest);
+            if (UniversalDepotPlugin.EnableDebugLogs.Value)
+                UniversalDepotPlugin.Log.LogWarning(
+                    $"[Depot #{EntityId}] Overflow: deleted {freed}x item={oldest} " +
+                    $"(needed {count} room)");
             return freed;
         }
-    }
 
-    // Lightweight OrderBy for older C# (Unity 2022 = C# 9 compatible)
-    internal static class LinqShim
-    {
-        public static IOrderedEnumerable<T> OrderBy<T, TKey>(this IEnumerable<T> src, Func<T, TKey> key)
-            => System.Linq.Enumerable.OrderBy(src, key);
-        public static IOrderedEnumerable<T> OrderByDescending<T, TKey>(this IEnumerable<T> src, Func<T, TKey> key)
-            => System.Linq.Enumerable.OrderByDescending(src, key);
-        public static IEnumerable<T> Where<T>(this IEnumerable<T> src, Func<T, bool> pred)
-            => System.Linq.Enumerable.Where(src, pred);
-        public static T FirstOrDefault<T>(this IEnumerable<T> src)
-            => System.Linq.Enumerable.FirstOrDefault(src);
-        public static T First<T>(this IEnumerable<T> src)
-            => System.Linq.Enumerable.First(src);
-        public static int Sum<T>(this IEnumerable<T> src, Func<T, int> sel)
-            => System.Linq.Enumerable.Sum(src, sel);
+        /// <summary>
+        /// Find the itemId with the oldest timestamp. Returns -1 if no
+        /// candidate is found. Skips items with zero count.
+        /// </summary>
+        private int FindOldestSlot(int excludeItem)
+        {
+            int oldestId = -1;
+            DateTime oldestTime = DateTime.MaxValue;
+            foreach (var kv in _slotTimestamps)
+            {
+                if (kv.Key == excludeItem) continue;
+                // Skip empty slots — they're not useful eviction candidates
+                if (!_slots.TryGetValue(kv.Key, out int c) || c <= 0) continue;
+                if (kv.Value < oldestTime)
+                {
+                    oldestTime = kv.Value;
+                    oldestId = kv.Key;
+                }
+            }
+            return oldestId;
+        }
     }
 }

@@ -2,78 +2,109 @@ using BepInEx.Logging;
 using HarmonyLib;
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Reflection;
+using UnityEngine;
 
 namespace DspUniversalDepot
 {
     /// <summary>
-    /// Patches DSP's conveyor/transport logic to interact with our
-    /// dynamic-slot Universal Depot.
+    /// Patches DSP's conveyor/storage interface so belts see our dynamic
+    /// slot system. Three belt lanes in (MK1/MK2/MK3), three out, zero
+    /// ILS remote ports.
     ///
-    /// Key idea: when a belt pulls from the depot, the game's
-    /// StorageComponent.GetItemCount(itemId) returns 0 unless the slot
-    /// is statically registered. We patch this to consult our
-    /// DepotStorage which tracks counts per itemId.
-    ///
-    /// Nebula compatibility: we only patch the LOCAL simulation;
-    /// we never modify anything that gets sent over the network.
+    /// All patches are gated by IsUniversalDepot() which checks
+    /// EntityData.protoId — this is set when DSP loads the building
+    /// (LDB.items[CustomItemId] → registered as our depot). This means:
+    ///   • vanilla StorageComponent behavior is preserved for ALL other
+    ///     buildings (miners, labs, vessels, ILS, …)
+    ///   • no need to manually register depots — protoId lookup is O(1)
     /// </summary>
-    public class ConveyorPatcher
-    {
-        // 3 input lanes (MK1/MK2/MK3 belts) + 3 output lanes
-        public const int INPUT_LANE_START = 0;  // port 0
-        public const int INPUT_LANE_END = 2;    // port 2
-        public const int OUTPUT_LANE_START = 3; // port 3
-        public const int OUTPUT_LANE_END = 5;   // port 5
-
-        public ConveyorPatcher()
-        {
-            var harmony = new Harmony(UniversalDepotPlugin.GUID);
-            // PatchStorageQueries applies Harmony hooks to local reads
-            // (GetItemCount / TakeItem / etc.) so belts see dynamic slots.
-        }
-
-        /// <summary>
-        /// Returns true if the given port index is a belt input lane.
-        /// </summary>
-        public static bool IsInputLane(int port) => port >= INPUT_LANE_START && port <= INPUT_LANE_END;
-
-        /// <summary>
-        /// Returns true if the given port index is a belt output lane.
-        /// </summary>
-        public static bool IsOutputLane(int port) => port >= OUTPUT_LANE_START && port <= OUTPUT_LANE_END;
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    //  Harmony patches for StorageComponent (conveyor interface)
-    // ─────────────────────────────────────────────────────────────
-
     public static class PatchStorageQueries
     {
+        // 3 input lanes (MK1/MK2/MK3) + 3 output lanes, no ILS ports
+        public const int INPUT_LANE_START = 0;
+        public const int INPUT_LANE_END = 2;
+        public const int OUTPUT_LANE_START = 3;
+        public const int OUTPUT_LANE_END = 5;
+        public const int BELT_LANE_COUNT = 3;
+
         /// <summary>
-        /// Returns the count of an item stored in this entity.
-        /// We override to consult our dynamic slot system.
+        /// Returns true if the given entity is one of our Universal Depots.
+        /// Uses EntityData.protoId lookup via reflection.
         /// </summary>
+        public static bool IsUniversalDepot(StorageComponent storage)
+        {
+            if (storage == null) return false;
+            try
+            {
+                int entityId = storage.entityId;
+                if (entityId < 0) return false;
+
+                // Resolve the planet factory + entity data.
+                // We walk the GameMain.gameData → galaxy → star → planet → factory.
+                var gameMain = GameMain.gameData;
+                if (gameMain == null) return false;
+
+                // Try to get the current planet's factory.
+                // gameMain.galaxy.PlanetByLoadedIndex() or localPlanet
+                PlanetFactory factory = GetLocalFactory();
+                if (factory == null) return false;
+
+                // entityId is local to the planet; factory.entityPool[entityId] gives data
+                if (entityId >= factory.entityPool.Length) return false;
+                var entityData = factory.entityPool[entityId];
+                if (entityData.id == 0) return false;
+
+                int customId = UniversalDepotPlugin.CustomItemId.Value;
+                return entityData.protoId == customId;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static PlanetFactory GetLocalFactory()
+        {
+            try
+            {
+                var gameMain = GameMain.gameData;
+                if (gameMain == null) return null;
+                var galaxy = gameMain.galaxy;
+                if (galaxy == null) return null;
+
+                // LocalPlanet for the player
+                if (GameMain.localPlanet != null)
+                    return GameMain.localPlanet.factory;
+
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // ── Harmony patches ──────────────────────────────────────
+
         [HarmonyPrefix]
-        [HarmonyPatch(typeof(StorageComponent), "GetItemCount", new Type[] { typeof(int)  })]
+        [HarmonyPatch(typeof(StorageComponent), "GetItemCount",
+            new Type[] { typeof(int) })]
         public static bool GetItemCount_Prefix(
             StorageComponent __instance,
             int itemId,
             ref int __result)
         {
-            int entityId = __instance.entityId;
-            if (!IsUniversalDepot(entityId)) return true; // vanilla path
+            if (!IsUniversalDepot(__instance)) return true;
 
-            var storage = UniversalDepotPlugin.Storage.GetOrCreate(entityId);
+            var storage = UniversalDepotPlugin.Storage.GetOrCreate(__instance.entityId);
             __result = storage.GetCount(itemId);
-            return false; // skip original
+            return false;
         }
 
-        /// <summary>
-        /// Take up to `count` items of `itemId`. We serve from our storage.
-        /// </summary>
         [HarmonyPrefix]
-        [HarmonyPatch(typeof(StorageComponent), "TakeItem")]
+        [HarmonyPatch(typeof(StorageComponent), "TakeItem",
+            new Type[] { typeof(int), typeof(int), typeof(int), typeof(int) })]
         public static bool TakeItem_Prefix(
             StorageComponent __instance,
             int filterFrom,
@@ -82,51 +113,36 @@ namespace DspUniversalDepot
             int desiredCount,
             ref int __result)
         {
-            int entityId = __instance.entityId;
-            if (!IsUniversalDepot(entityId)) return true;
+            if (!IsUniversalDepot(__instance)) return true;
 
-            var storage = UniversalDepotPlugin.Storage.GetOrCreate(entityId);
+            var storage = UniversalDepotPlugin.Storage.GetOrCreate(__instance.entityId);
             __result = storage.TakeItems(desiredItemId, desiredCount);
             return false;
         }
 
-        /// <summary>
-        /// Insert items into the depot. Honors dynamic-slot + overflow rules.
-        /// </summary>
         [HarmonyPrefix]
-        [HarmonyPatch(typeof(StorageComponent), "AddItem")]
+        [HarmonyPatch(typeof(StorageComponent), "AddItem",
+            new Type[] { typeof(int), typeof(int) })]
         public static bool AddItem_Prefix(
             StorageComponent __instance,
             int itemId,
             int count,
             ref int __result)
         {
-            int entityId = __instance.entityId;
-            if (!IsUniversalDepot(entityId)) return true;
+            if (!IsUniversalDepot(__instance)) return true;
 
-            var storage = UniversalDepotPlugin.Storage.GetOrCreate(entityId);
+            var storage = UniversalDepotPlugin.Storage.GetOrCreate(__instance.entityId);
             int rejected = storage.AddItems(itemId, count);
             __result = count - rejected;
             return false;
         }
 
-        // ── Helpers ──────────────────────────────────────────────
+        // ── Input/output lane helpers (used by belt connection code) ──
 
-        /// <summary>
-        /// Check if entityId is one of our Universal Depots. We tag them
-        /// by their customItemId so we can identify them at runtime.
-        /// </summary>
-        private static bool IsUniversalDepot(int entityId)
-        {
-            // In real DSP: entityId → EntityData → itemId
-            // We just look up in our registry or check if a storage exists
-            // For now: any entity with active storage we created counts.
-            return UniversalDepotPlugin.Storage != null &&
-                   UniversalDepotPlugin.Storage.Contains(entityId);
-        }
+        public static bool IsInputLane(int port) =>
+            port >= INPUT_LANE_START && port <= INPUT_LANE_END;
+
+        public static bool IsOutputLane(int port) =>
+            port >= OUTPUT_LANE_START && port <= OUTPUT_LANE_END;
     }
-
-    // ──────────────────────────────────────────────────────────
-    //  Note: StorageComponent stub is in _Stubs.cs
-    // ──────────────────────────────────────────────────────────
 }

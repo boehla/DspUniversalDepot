@@ -1,8 +1,7 @@
 using BepInEx.Logging;
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
+using System.Reflection;
 using UnityEngine;
 
 namespace DspUniversalDepot
@@ -19,26 +18,27 @@ namespace DspUniversalDepot
         public GameObject ModelPrefab;
         public Texture2D IconTexture;
 
-        public bool HasCustomAssets => Bundle != null && Icon != null && ModelPrefab != null;
+        public bool HasCustomAssets =>
+            Bundle != null && Icon != null && ModelPrefab != null;
 
         public void Load()
         {
             try
             {
-                string pluginPath = Path.GetDirectoryName(typeof(UniversalDepotPlugin).Assembly.Location);
-                string bundlePath = Path.Combine(pluginPath, "universaldepot.assets");
-
-                if (!File.Exists(bundlePath))
+                string bundlePath = ResolveAssetBundlePath();
+                if (string.IsNullOrEmpty(bundlePath) || !File.Exists(bundlePath))
                 {
-                    UniversalDepotPlugin.Log.LogWarning(
-                        $"[Assets] AssetBundle not found at {bundlePath}, using vanilla fallback");
+                    UniversalDepotPlugin.Log?.LogWarning(
+                        $"[Assets] AssetBundle not found (searched plugin dirs), " +
+                        "using vanilla fallback.");
                     return;
                 }
 
                 Bundle = AssetBundle.LoadFromFile(bundlePath);
                 if (Bundle == null)
                 {
-                    UniversalDepotPlugin.Log.LogError("[Assets] Failed to load AssetBundle");
+                    UniversalDepotPlugin.Log?.LogError(
+                        "[Assets] Failed to load AssetBundle from " + bundlePath);
                     return;
                 }
 
@@ -55,14 +55,49 @@ namespace DspUniversalDepot
                 // Load 3D model prefab (named "prefab")
                 ModelPrefab = Bundle.LoadAsset<GameObject>("prefab");
 
-                UniversalDepotPlugin.Log.LogInfo(
+                UniversalDepotPlugin.Log?.LogInfo(
                     $"[Assets] Loaded: icon={(Icon != null ? "yes" : "no")}, " +
-                    $"model={(ModelPrefab != null ? "yes" : "no")}");
+                    $"model={(ModelPrefab != null ? "yes" : "no")} from {bundlePath}");
             }
             catch (Exception e)
             {
-                UniversalDepotPlugin.Log.LogError($"[Assets] Load failed: {e}");
+                UniversalDepotPlugin.Log?.LogError($"[Assets] Load failed: {e}");
             }
+        }
+
+        /// <summary>
+        /// Find universaldepot.assets in any of the candidate paths:
+        ///   1. Same directory as the DLL (standard r2modman install)
+        ///   2. BepInEx/plugins/ (dev install)
+        ///   3. BepInEx/plugins/DspUniversalDepot/ (subfolder)
+        ///   4. Game root (portable install)
+        /// </summary>
+        private static string ResolveAssetBundlePath()
+        {
+            string dllDir = Path.GetDirectoryName(
+                Assembly.GetExecutingAssembly().Location);
+
+            string[] candidates =
+            {
+                Path.Combine(dllDir ?? "", "universaldepot.assets"),
+                Path.Combine(dllDir ?? "", "..", "universaldepot.assets"),
+                Path.Combine(dllDir ?? "", "..", "DspUniversalDepot", "universaldepot.assets"),
+                Path.Combine(dllDir ?? "", "..", "..", "..", "universaldepot.assets"),
+            };
+
+            foreach (string path in candidates)
+            {
+                try
+                {
+                    string full = Path.GetFullPath(path);
+                    if (File.Exists(full)) return full;
+                }
+                catch
+                {
+                    // Skip invalid paths
+                }
+            }
+            return null;
         }
 
         public void Unload()

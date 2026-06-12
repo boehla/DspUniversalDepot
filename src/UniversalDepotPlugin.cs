@@ -18,10 +18,10 @@ namespace DspUniversalDepot
     {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.2.2";
+        public const string VERSION = "0.3.0";
 
         public static UniversalDepotPlugin Instance;
-        public static ManualLogSource Log;
+        public static BepInEx.Logging.ManualLogSource Log;
 
         // ── Config ───────────────────────────────────────────────
         public static ConfigEntry<int> ItemLimit;
@@ -31,12 +31,13 @@ namespace DspUniversalDepot
         public static ConfigEntry<bool> EnableDebugLogs;
         public static ConfigEntry<int> CustomItemId;
         public static ConfigEntry<int> CustomRecipeId;
+        public static ConfigEntry<bool> EnableSaveLoad;
 
         // ── Subsystems ───────────────────────────────────────────
         public static StorageManager Storage;
         public static AssetBundleManager Assets;
-        public static LDBPatcher Ldb;
-        public static ConveyorPatcher Conveyors;
+        public static RecipePatcher Recipe;
+        public static Harmony HarmonyInstance;
 
         public override void Load()
         {
@@ -47,9 +48,9 @@ namespace DspUniversalDepot
             ItemLimit = Config.Bind(
                 "General",
                 "ItemLimit",
-                5000,
+                50000,
                 "Maximum stack size per item slot in the Universal Depot.\n" +
-                "Range: 1-999999. Default 5000.");
+                "Range: 1-999999. Default 50000 (raised from 5000 in v0.3.0).");
 
             DynamicSlots = Config.Bind(
                 "General",
@@ -90,39 +91,78 @@ namespace DspUniversalDepot
                 100002,
                 "Recipe ID for the Universal Depot. Change if it conflicts.");
 
+            EnableSaveLoad = Config.Bind(
+                "General",
+                "EnableSaveLoad",
+                true,
+                "Persist Universal Depot contents across save/load.\n" +
+                "Requires DSPModSave (https://github.com/soarqin/DSP_Mods/tree/master/DSPModSave).");
+
             // ── Initialize subsystems ────────────────────────────
             try
             {
-                // 1. Load AssetBundle (icon + 3D model)
+                // 1. Load AssetBundle (icon + 3D model, optional)
                 Assets = new AssetBundleManager();
                 Assets.Load();
 
-                // 2. Patch DSP's local database to register building + recipe
-                Ldb = new LDBPatcher();
-                Ldb.Register();
+                // 2. Register building + recipe via LDBTool
+                Recipe = new RecipePatcher();
+                Recipe.Register();
 
-                // 3. Hook conveyor/transport logic for dynamic slot serving
-                Conveyors = new ConveyorPatcher();
-
-                // 4. Apply Harmony patches (if any)
-                var harmony = new Harmony(GUID);
-                harmony.PatchAll(Assembly.GetExecutingAssembly());
-
-                // 5. Initialize storage
+                // 3. Initialize storage
                 Storage = new StorageManager();
 
+                // 4. Apply all Harmony patches (one instance, one PatchAll)
+                HarmonyInstance = new Harmony(GUID);
+                HarmonyInstance.PatchAll(Assembly.GetExecutingAssembly());
+
                 Log.LogInfo($"{NAME} v{VERSION} loaded");
-                Log.LogInfo($"  ItemLimit     = {ItemLimit.Value}");
-                Log.LogInfo($"  DynamicSlots  = {DynamicSlots.Value}");
-                Log.LogInfo($"  MaxSlotCount  = {MaxSlotCount.Value}");
-                Log.LogInfo($"  DeleteOverflow= {DeleteOverflow.Value}");
-                Log.LogInfo($"  ItemId        = {CustomItemId.Value}");
-                Log.LogInfo($"  RecipeId      = {CustomRecipeId.Value}");
+                Log.LogInfo($"  ItemLimit      = {ItemLimit.Value}");
+                Log.LogInfo($"  DynamicSlots   = {DynamicSlots.Value}");
+                Log.LogInfo($"  MaxSlotCount   = {MaxSlotCount.Value}");
+                Log.LogInfo($"  DeleteOverflow = {DeleteOverflow.Value}");
+                Log.LogInfo($"  ItemId         = {CustomItemId.Value}");
+                Log.LogInfo($"  RecipeId       = {CustomRecipeId.Value}");
+                Log.LogInfo($"  SaveLoad       = {EnableSaveLoad.Value}");
+
+                if (!UniversalDepotPlugin.EnableSaveLoad.Value)
+                {
+                    Log.LogWarning(
+                        "[Init] Save/Load disabled via config — depot contents will be lost on save/reload.");
+                }
             }
             catch (Exception e)
             {
                 Log.LogError($"[Init] Failed: {e}");
             }
+        }
+
+        public override bool Unload()
+        {
+            try
+            {
+                if (HarmonyInstance != null)
+                {
+                    HarmonyInstance.UnpatchSelf();
+                    HarmonyInstance = null;
+                }
+                if (Storage != null)
+                {
+                    Storage.Clear();
+                    Storage = null;
+                }
+                if (Assets != null)
+                {
+                    Assets.Unload();
+                    Assets = null;
+                }
+                Log?.LogInfo($"{NAME} unloaded");
+            }
+            catch (Exception e)
+            {
+                Log?.LogError($"[Unload] Failed: {e}");
+            }
+            return base.Unload();
         }
     }
 }

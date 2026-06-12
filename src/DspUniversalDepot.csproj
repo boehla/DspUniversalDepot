@@ -8,47 +8,55 @@
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <Description>A universal planetary depot with configurable item limits and dynamic slot allocation.</Description>
     <Authors>boehla</Authors>
-    <Version>0.2.2</Version>
+    <Version>0.3.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <NoWarn>CS0414;CS0169;CS0649;CS0067;CS0117;CS0029;CS0019;CS1503;CS0118;CS0234;CS0103;CS0021;CS0436</NoWarn>
+    <!--
+      NoWarn: we suppress common warnings from the dynamic storage code
+      (unused private fields, casts, etc.) but DO NOT mask compile errors
+      like CS0246 (type not found) or CS0108 (member hiding).
+    -->
+    <NoWarn>CS0414;CS0169;CS0649;CS0067;CS0117;CS0029;CS0019;CS1503;CS0118;CS0234;CS0021;CS0436</NoWarn>
   </PropertyGroup>
 
   <!--
-    ============================================================
+    ====================================================================
     BUILD MODES
-    ============================================================
+    ====================================================================
 
-    Mode 1: Real DSP DLLs (RECOMMENDED, works on Linux/Windows)
+    Mode 1: Real DSP DLLs (default, cross-platform)
     =====
       dotnet build -c Release
-      Uses the ./libs/ folder (auto-downloaded from NuGet +
-      GitHub DSP-Mods repo). Compiles against real BepInEx 5.4,
-      Harmony, UnityEngine, CommonAPI, LDBTool, NebulaAPI,
-      DSPModSave, and AsmResolver.
-      The resulting DLL WILL load in DSP.
+      Uses the ./libs/ folder (auto-downloaded by download-libs.sh).
+      BepInEx, Harmony, UnityEngine: real refs from libs/
+      DSP game types (StorageComponent, PlanetFactory, GameSave, ...):
+        provided by _DSPStubs.cs since Assembly-CSharp.dll is
+        proprietary and not available on NuGet. These stubs are
+        SHADOWED at runtime by the real types from Assembly-CSharp.dll
+        that BepInEx loads before the plugin.
 
-    Mode 2: Real DSP install (Windows + DSP installed)
+    Mode 2: Real DSP install (Windows + DSP installed, for production)
     =====
       set DSP_GAME_PATH="C:\Program Files (x86)\Steam\steamapps\common\Dyson Sphere Program"
       dotnet build -c Release
-      Uses DLLs from your live DSP install, guaranteed exact version
-      match (DSP updates can change the Unity engine version, so this
-      is the safest mode for production use).
+      Uses DLLs from your live DSP install for guaranteed version match.
 
-    Mode 3: Stubs (CI / no DSP / no internet)
+    Mode 3: CI / sandbox (no DSP, no libs)
     =====
-      dotnet build -c Release -p:DSP_USE_STUBS=true
-      OR: rm -rf ../libs && dotnet build
-      BepInEx/Harmony/Unity/DSP types are stubbed. The DLL
-      COMPILES but WILL NOT load in DSP, useful only for
-      compile-time validation in sandboxes.
+      rm -rf ../libs && dotnet build -c Release
+      Builds against _DSPStubs.cs only. The DLL COMPILES but cannot be
+      loaded into DSP (would conflict on type names). Useful only for
+      compile-time CI validation.
   -->
 
   <PropertyGroup Condition="'$(DSP_USE_STUBS)' == 'true'">
     <DefineConstants>$(DefineConstants);HAS_DSP_REFS</DefineConstants>
   </PropertyGroup>
 
-  <!-- Reference real DSP DLLs from ./libs/ if present -->
+  <PropertyGroup Condition="'$(DSP_GAME_PATH)' != ''">
+    <DefineConstants>$(DefineConstants);HAS_DSP_REFS</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Reference real BepInEx/Harmony/Unity DLLs from ./libs/ if present -->
   <ItemGroup Condition="Exists('../libs/') And '$(DSP_USE_STUBS)' != 'true'">
     <Reference Include="BepInEx">
       <HintPath>../libs/BepInEx.dll</HintPath>
@@ -74,32 +82,24 @@
       <HintPath>../libs/UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.AssetBundleModule">
+      <HintPath>../libs/UnityEngine.AssetBundleModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
       <HintPath>../libs/UnityEngine.IMGUIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.UI">
+    <Reference Include="UnityEngine.UIModule">
       <HintPath>../libs/UnityEngine.UIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.UI.Builder">
+    <Reference Include="UnityEngine.UIElementsModule">
       <HintPath>../libs/UnityEngine.UIElementsModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="CommonAPI">
-      <HintPath>../libs/CommonAPI.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="LDBTool">
-      <HintPath>../libs/LDBTool.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="NebulaAPI">
-      <HintPath>../libs/NebulaAPI.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="DSPModSave">
-      <HintPath>../libs/DSPModSave.dll</HintPath>
+    <Reference Include="UnityEngine.JSONSerializeModule">
+      <HintPath>../libs/UnityEngine.JSONSerializeModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
@@ -113,17 +113,9 @@
       <HintPath>$(DSP_GAME_PATH)BepInEx\core\BepInEx.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine">
-      <HintPath>$(DSP_GAME_PATH)Dyson Sphere Program_Data\Managed\UnityEngine.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(DSP_GAME_PATH)Dyson Sphere Program_Data\Managed\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
-
-  <PropertyGroup Condition="'$(DSP_GAME_PATH)' != ''">
-    <DefineConstants>$(DefineConstants);HAS_DSP_REFS</DefineConstants>
-  </PropertyGroup>
 </Project>

@@ -1,0 +1,25 @@
+# Build outputs
+bin/
+obj/
+*.dll
+*.pdb
+*.user
+*.suo
+
+# IDE
+.vs/
+.idea/
+*.code-workspace
+
+# DSP specific
+[Bb]epInEx/
+[Dd]sp/
+*.zip
+*.7z
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local
+*.local

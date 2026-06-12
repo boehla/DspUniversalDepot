@@ -1,0 +1,9 @@
+{
+  "name": "DspUniversalDepot",
+  "version_number": "0.1.0",
+  "website_url": "https://github.com/boehla/DspUniversalDepot",
+  "description": "A universal planetary depot for Dyson Sphere Program with configurable item limits and dynamic slot allocation. Compatible with Nebula Multiplayer.",
+  "dependencies": [
+    "BepInEx-BepInExPack-5.4.2100"
+  ]
+}

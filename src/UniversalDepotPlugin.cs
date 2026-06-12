@@ -12,8 +12,8 @@ namespace DspUniversalDepot
     /// Main entry point. BepInEx auto-instantiates this on plugin load.
     /// Inherits from BasePlugin (IL2CPP version) because DSP runs IL2CPP.
     /// </summary>
-    [BepInPlugin(GUID, NAME, VERSION)]
-    [BepInProcess("DSPGAME.exe")]
+    [BepInPluginAttribute(GUID, NAME, VERSION)]
+    [BepInProcessAttribute("DSPGAME.exe")]
     public class UniversalDepotPlugin : IL2CPPBasePlugin
     {
         public const string GUID = "com.boehla.dspuniversaldepot";

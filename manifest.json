@@ -1,8 +1,8 @@
 {
   "name": "DspUniversalDepot",
-  "version_number": "0.2.2",
+  "version_number": "0.2.3",
   "website_url": "https://github.com/boehla/DspUniversalDepot",
-  "description": "Universal Planetary Depot for Dyson Sphere Program: configurable item limits (default 5000), dynamic slot allocation, optional overflow deletion, Nebula Multiplayer compatible.",
+  "description": "Universal planetary depot with unlimited/configurable items, dynamic slot allocation, 3 belt lanes, and overflow deletion. Nebula-compatible. Built against real BepInEx 5.4.23.5 + HarmonyX + UnityEngine refs.",
   "icon": "icon.png",
   "dependencies": [
     "BepInEx-BepInExPack-5.4.2100"

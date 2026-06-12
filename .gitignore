@@ -27,3 +27,16 @@ Thumbs.db
 # Build artifacts (zip is committed separately in releases/)
 build/
 *.zip
+
+# r2modman build staging
+releases/r2modman-build/
+
+# Exception: keep release zips
+!releases/*.zip
+
+
+# Reference DLLs (rebuilt by dotnet/scripts/download-libs.sh)
+libs/
+
+# r2modman build staging
+releases/r2modman-build/

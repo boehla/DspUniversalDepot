@@ -5,6 +5,12 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-05-23
+
+### Changed
+- **Removed warning threshold** — no more near-full warnings
+- **Higher recipe cost** for balance: 30x Titanium + 20x Circuit + 10x Microcrystalline + 2x Particle Broad-band, 10s craft
+
 ## [0.2.1] - 2026-05-23
 
 ### Added

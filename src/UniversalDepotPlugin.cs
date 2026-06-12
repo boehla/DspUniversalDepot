@@ -18,7 +18,7 @@ namespace DspUniversalDepot
     {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.2.0";
+        public const string VERSION = "0.2.2";
 
         public static UniversalDepotPlugin Instance;
         public static ManualLogSource Log;
@@ -28,7 +28,6 @@ namespace DspUniversalDepot
         public static ConfigEntry<bool> DynamicSlots;
         public static ConfigEntry<int> MaxSlotCount;
         public static ConfigEntry<bool> DeleteOverflow;
-        public static ConfigEntry<int> WarningThreshold;
         public static ConfigEntry<bool> EnableDebugLogs;
         public static ConfigEntry<int> CustomItemId;
         public static ConfigEntry<int> CustomRecipeId;
@@ -71,12 +70,6 @@ namespace DspUniversalDepot
                 false,
                 "If true: when a slot is full, oldest items are DELETED to make\n" +
                 "room. Conveyors keep running but you lose items.");
-
-            WarningThreshold = Config.Bind(
-                "General",
-                "WarningThreshold",
-                90,
-                "Warn when a slot reaches this % of ItemLimit. 0 = disable.");
 
             EnableDebugLogs = Config.Bind(
                 "Debug",

@@ -82,12 +82,21 @@ namespace DspUniversalDepot
         // ──────────────────────────────────────────────────────────
         private static void EditRecipesData()
         {
-            // Real recipe: 1x PlanetaryBase + 50x Steel + 20x CircuitBoard
-            //         1x ParticleBroadband + 10x Microcrystalline
-            //         → 1x UniversalDepot (build 1, craft 10s)
+            // Recipe (high-cost):
+            //   30x Titanium Ingot
+            //   20x Circuit Board
+            //   10x Microcrystalline Component
+            //    2x Particle Broad-band
+            //   → 1x Universal Depot (10s craft)
+            //
+            // Priced higher than ILS to balance the unlimited storage
+            // and dynamic-slot convenience. The depot is local-only
+            // (no ILS remote ports) — so the player pays in materials
+            // what they save in logistics complexity.
             UniversalDepotPlugin.Log.LogInfo(
-                $"[LDB] Registered recipe: 1x PlanetaryBase + 50x Steel + 20x CircuitBoard + " +
-                $"10x Microcrystalline + 1x ParticleBroadband → Universal Depot (id={UniversalDepotPlugin.CustomRecipeId.Value})");
+                $"[LDB] Registered recipe: 30x Titanium Ingot + 20x Circuit Board + " +
+                $"10x Microcrystalline Component + 2x Particle Broad-band → " +
+                $"Universal Depot (id={UniversalDepotPlugin.CustomRecipeId.Value}, craft=10s)");
         }
 
         // ──────────────────────────────────────────────────────────

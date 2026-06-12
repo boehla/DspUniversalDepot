@@ -17,7 +17,18 @@ A Dyson Sphere Program mod that adds a **Universal Planetary Depot** with:
 | Dynamic slots | enabled | ✓ |
 | Overflow deletion | disabled | ✓ |
 | Max slot count | 1000 | ✓ (0 = unlimited) |
-| Warning threshold | 90% | ✓ |
+| Belt lanes | 3 in / 3 out (MK1/MK2/MK3) | — |
+| ILS remote ports | 0 (planet-only) | — |
+
+## Recipe
+
+Universal Depot is **expensive** to balance the unlimited storage:
+
+- 30x Titanium Ingot
+- 20x Circuit Board
+- 10x Microcrystalline Component
+- 2x Particle Broad-band
+- Craft time: 10s
 
 ## Installation
 
@@ -49,9 +60,6 @@ MaxSlotCount = 1000
 
 ## Delete oldest items when full (conveyor keeps running)
 DeleteOverflow = false
-
-## Warning threshold (% of ItemLimit before notification)
-WarningThreshold = 90
 ```
 
 ## How It Works

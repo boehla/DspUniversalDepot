@@ -77,7 +77,6 @@ namespace DspUniversalDepot
             if (count <= 0) return 0;
             int limit = UniversalDepotPlugin.ItemLimit.Value;
             int maxSlots = UniversalDepotPlugin.MaxSlotCount.Value;
-            int warnAt = UniversalDepotPlugin.WarningThreshold.Value;
 
             // New item type? need a slot
             if (!_slots.ContainsKey(itemId))
@@ -122,18 +121,6 @@ namespace DspUniversalDepot
                     int second = Math.Min(freed, rejected);
                     _slots[itemId] += second;
                     rejected -= second;
-                }
-            }
-
-            // Warning check
-            if (warnAt > 0)
-            {
-                int pct = (int)((_slots[itemId] * 100L) / limit);
-                if (pct >= warnAt && pct < 100)
-                {
-                    if (UniversalDepotPlugin.EnableDebugLogs.Value)
-                        UniversalDepotPlugin.Log.LogWarning(
-                            $"[Depot #{EntityId}] Slot item={itemId} at {pct}% of limit");
                 }
             }
 

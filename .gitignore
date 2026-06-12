@@ -23,3 +23,7 @@ Thumbs.db
 
 # Local
 *.local
+
+# Build artifacts (zip is committed separately in releases/)
+build/
+*.zip

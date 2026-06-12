@@ -1,10 +1,11 @@
 {
   "name": "DspUniversalDepot",
-  "version_number": "0.2.3",
+  "version_number": "0.4.0",
   "website_url": "https://github.com/boehla/DspUniversalDepot",
-  "description": "Universal planetary depot with unlimited/configurable items, dynamic slot allocation, 3 belt lanes, and overflow deletion. Nebula-compatible. Built against real BepInEx 5.4.23.5 + HarmonyX + UnityEngine refs.",
+  "description": "A planetary depot building with a large, configurable slot count. Cloned from the vanilla storage so belts, sorters, the storage UI and native save/load all keep working.",
   "icon": "icon.png",
   "dependencies": [
-    "BepInEx-BepInExPack-5.4.2100"
+    "BepInEx-BepInExPack-5.4.2100",
+    "xiaoye97-LDBTool-3.0.0"
   ]
 }

@@ -1,168 +1,156 @@
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
-using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using System;
-using System.Reflection;
+using xiaoye97;
 
-namespace DspUniversalDepot
-{
+namespace DspUniversalDepot {
     /// <summary>
-    /// Main entry point. BepInEx auto-instantiates this on plugin load.
-    /// Inherits from BasePlugin (IL2CPP version) because DSP runs IL2CPP.
+    /// Universal Planetary Depot — a storage building cloned from the vanilla
+    /// storage box, but with a large, configurable slot count.
+    ///
+    /// Because it IS a real DSP storage entity it keeps full compatibility with
+    /// belts, sorters, the storage window UI and the native save format
+    /// (FactoryStorage.Export/Import) — no custom serialization needed.
     /// </summary>
-    [BepInPluginAttribute(GUID, NAME, VERSION)]
-    [BepInProcessAttribute("DSPGAME.exe")]
-    public class UniversalDepotPlugin : IL2CPPBasePlugin
-    {
+    [BepInPlugin(GUID, NAME, VERSION)]
+    [BepInProcess("DSPGAME.exe")]
+    [BepInDependency("me.xiaoye97.plugin.Dyson.LDBTool")]
+    public class UniversalDepotPlugin : BaseUnityPlugin {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.3.0";
+        public const string VERSION = "0.4.0";
 
-        public static UniversalDepotPlugin Instance;
-        public static BepInEx.Logging.ManualLogSource Log;
+        public static ManualLogSource Log;
 
-        // ── Config ───────────────────────────────────────────────
-        public static ConfigEntry<int> ItemLimit;
-        public static ConfigEntry<bool> DynamicSlots;
-        public static ConfigEntry<int> MaxSlotCount;
-        public static ConfigEntry<bool> DeleteOverflow;
-        public static ConfigEntry<bool> EnableDebugLogs;
-        public static ConfigEntry<int> CustomItemId;
-        public static ConfigEntry<int> CustomRecipeId;
-        public static ConfigEntry<bool> EnableSaveLoad;
+        public static ConfigEntry<int> SlotCount;
+        public static ConfigEntry<int> SourceItemId;
+        public static ConfigEntry<int> DepotItemId;
+        public static ConfigEntry<int> DepotRecipeId;
+        public static ConfigEntry<int> BuildBarIndex;
 
-        // ── Subsystems ───────────────────────────────────────────
-        public static StorageManager Storage;
-        public static AssetBundleManager Assets;
-        public static RecipePatcher Recipe;
-        public static Harmony HarmonyInstance;
+        private void Awake() {
+            Log = Logger;
 
-        public override void Load()
-        {
-            Instance = this;
-            Log = base.Log;
+            SlotCount = Config.Bind("General", "SlotCount", 500,
+                "Number of storage slots in the Universal Depot. Vanilla storage has 30-60.\n" +
+                "Higher values give more capacity; very large values make the storage window tall.");
+            SourceItemId = Config.Bind("Advanced", "SourceStorageItemId", 2102,
+                "Vanilla storage item that is cloned (model, icon, collider).\n" +
+                "2101 = Storage MK.I, 2102 = Storage MK.II.");
+            DepotItemId = Config.Bind("Advanced", "DepotItemId", 7777,
+                "Item ID for the Universal Depot. Change only if it conflicts with another mod.");
+            DepotRecipeId = Config.Bind("Advanced", "DepotRecipeId", 7777,
+                "Recipe ID for the Universal Depot. Change only if it conflicts with another mod.");
+            BuildBarIndex = Config.Bind("Advanced", "BuildBarIndex", 12,
+                "Column (1-12) inside the storage build category where the depot icon appears.");
 
-            // ── Config bindings ──────────────────────────────────
-            ItemLimit = Config.Bind(
-                "General",
-                "ItemLimit",
-                50000,
-                "Maximum stack size per item slot in the Universal Depot.\n" +
-                "Range: 1-999999. Default 50000 (raised from 5000 in v0.3.0).");
+            // LDBTool fires PreAddDataAction once the vanilla protos are loaded
+            // but before it merges custom protos — the right moment to clone.
+            LDBTool.PreAddDataAction += registerDepot;
 
-            DynamicSlots = Config.Bind(
-                "General",
-                "DynamicSlots",
-                true,
-                "Automatically create a new slot for each unique item type.");
+            Harmony harmony = new Harmony(GUID);
+            harmony.PatchAll(typeof(UniversalDepotPlugin).Assembly);
 
-            MaxSlotCount = Config.Bind(
-                "General",
-                "MaxSlotCount",
-                1000,
-                "Maximum unique item types the depot can hold.\n" +
-                "0 = unlimited (may impact performance with many mods).");
+            Log.LogInfo($"{NAME} v{VERSION} initialised (slots={SlotCount.Value}, source={SourceItemId.Value})");
+        }
 
-            DeleteOverflow = Config.Bind(
-                "General",
-                "DeleteOverflow",
-                false,
-                "If true: when a slot is full, oldest items are DELETED to make\n" +
-                "room. Conveyors keep running but you lose items.");
-
-            EnableDebugLogs = Config.Bind(
-                "Debug",
-                "EnableDebugLogs",
-                false,
-                "Verbose logging for development. Disable in production.");
-
-            CustomItemId = Config.Bind(
-                "Advanced",
-                "CustomItemId",
-                100001,
-                "Item ID for the Universal Depot building. Change if it conflicts\n" +
-                "with another mod. Must be > 1000 and unique.");
-
-            CustomRecipeId = Config.Bind(
-                "Advanced",
-                "CustomRecipeId",
-                100002,
-                "Recipe ID for the Universal Depot. Change if it conflicts.");
-
-            EnableSaveLoad = Config.Bind(
-                "General",
-                "EnableSaveLoad",
-                true,
-                "Persist Universal Depot contents across save/load.\n" +
-                "Requires DSPModSave (https://github.com/soarqin/DSP_Mods/tree/master/DSPModSave).");
-
-            // ── Initialize subsystems ────────────────────────────
-            try
-            {
-                // 1. Load AssetBundle (icon + 3D model, optional)
-                Assets = new AssetBundleManager();
-                Assets.Load();
-
-                // 2. Register building + recipe via LDBTool
-                Recipe = new RecipePatcher();
-                Recipe.Register();
-
-                // 3. Initialize storage
-                Storage = new StorageManager();
-
-                // 4. Apply all Harmony patches (one instance, one PatchAll)
-                HarmonyInstance = new Harmony(GUID);
-                HarmonyInstance.PatchAll(Assembly.GetExecutingAssembly());
-
-                Log.LogInfo($"{NAME} v{VERSION} loaded");
-                Log.LogInfo($"  ItemLimit      = {ItemLimit.Value}");
-                Log.LogInfo($"  DynamicSlots   = {DynamicSlots.Value}");
-                Log.LogInfo($"  MaxSlotCount   = {MaxSlotCount.Value}");
-                Log.LogInfo($"  DeleteOverflow = {DeleteOverflow.Value}");
-                Log.LogInfo($"  ItemId         = {CustomItemId.Value}");
-                Log.LogInfo($"  RecipeId       = {CustomRecipeId.Value}");
-                Log.LogInfo($"  SaveLoad       = {EnableSaveLoad.Value}");
-
-                if (!UniversalDepotPlugin.EnableSaveLoad.Value)
-                {
-                    Log.LogWarning(
-                        "[Init] Save/Load disabled via config — depot contents will be lost on save/reload.");
+        /// <summary>
+        /// Clone the vanilla storage ItemProto, give it a new identity + recipe,
+        /// and queue it with LDBTool. Runs inside LDBTool.PreAddDataAction.
+        /// </summary>
+        private void registerDepot() {
+            try {
+                ItemProto src = LDB.items.Select(SourceItemId.Value);
+                if(src == null) src = LDB.items.Select(2102);
+                if(src == null) src = LDB.items.Select(2101);
+                if(src == null) {
+                    Log.LogError("[Depot] No vanilla storage proto found to clone (tried " +
+                        $"{SourceItemId.Value}, 2102, 2101). Depot NOT registered.");
+                    return;
                 }
-            }
-            catch (Exception e)
-            {
-                Log.LogError($"[Init] Failed: {e}");
+
+                int category = src.BuildIndex / 100;
+                int index = BuildBarIndex.Value;
+
+                // MethedEx.Copy is marked obsolete in favour of CommonAPI, but it
+                // is stable and lets us avoid an extra hard dependency.
+#pragma warning disable CS0618
+                ItemProto item = src.Copy();
+#pragma warning restore CS0618
+                item.ID = DepotItemId.Value;
+                item.SID = "";
+                item.Name = "Universal Planetary Depot";
+                item.Description = "A planetary depot cloned from the storage box, " +
+                    "with a greatly increased slot count. Works with belts, sorters and " +
+                    "saves natively with your game.";
+                item.Type = EItemType.Logistics;
+                item.BuildIndex = category * 100 + index;
+                item.preTech = null;
+                item.IsEntity = true;
+                item.CanBuild = true;
+
+                RecipeProto recipe = buildRecipe(src, item);
+                item.maincraft = recipe;
+                item.handcraft = recipe;
+
+                LDBTool.PreAddProto(item);
+                LDBTool.PreAddProto(recipe);
+                LDBTool.SetBuildBar(category, index, item.ID);
+
+                Log.LogInfo($"[Depot] Registered item {item.ID} cloned from {src.ID} \"{src.Name}\" " +
+                    $"(model={src.ModelIndex}) at build bar {category},{index} with {SlotCount.Value} slots");
+            } catch(Exception ex) {
+                Log.LogError($"[Depot] registerDepot failed: {ex}");
             }
         }
 
-        public override bool Unload()
-        {
-            try
-            {
-                if (HarmonyInstance != null)
-                {
-                    HarmonyInstance.UnpatchSelf();
-                    HarmonyInstance = null;
-                }
-                if (Storage != null)
-                {
-                    Storage.Clear();
-                    Storage = null;
-                }
-                if (Assets != null)
-                {
-                    Assets.Unload();
-                    Assets = null;
-                }
-                Log?.LogInfo($"{NAME} unloaded");
+        /// <summary>
+        /// A simple, always-available assemble/handcraft recipe producing the depot.
+        /// Ingredients use vanilla items (Titanium Ingot + Circuit Board) so it is
+        /// craftable mid-game without depending on tech unlocks.
+        /// </summary>
+        private RecipeProto buildRecipe(ItemProto src, ItemProto item) {
+            RecipeProto recipe = new RecipeProto();
+            recipe.ID = DepotRecipeId.Value;
+            recipe.SID = "";
+            recipe.Name = "Universal Planetary Depot";
+            recipe.Description = "";
+            recipe.Type = ERecipeType.Assemble;
+            recipe.Handcraft = true;
+            recipe.Explicit = true;
+            recipe.TimeSpend = 120; // 2 seconds at 60 ticks/s
+            recipe.GridIndex = src.GridIndex;
+            recipe.Items = new int[] { 1106, 1303 }; // Titanium Ingot, Circuit Board
+            recipe.ItemCounts = new int[] { 20, 10 };
+            recipe.Results = new int[] { item.ID };
+            recipe.ResultCounts = new int[] { 1 };
+            recipe.preTech = null;
+            recipe.IconPath = src.IconPath;
+            return recipe;
+        }
+    }
+
+    /// <summary>
+    /// Forces the depot's storage to the configured slot count. When the factory
+    /// creates the storage component for a freshly placed building it normally
+    /// uses prefabDesc.storageCol * storageRow; we override that for our protoId.
+    /// On save load the size comes from the save file, so this only affects newly
+    /// placed depots — exactly what we want.
+    /// </summary>
+    [HarmonyPatch]
+    public static class StorageSizePatch {
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(FactoryStorage), nameof(FactoryStorage.NewStorageComponent))]
+        public static void NewStorageComponentPrefix(FactoryStorage __instance, int entityId, ref int size) {
+            PlanetFactory factory = __instance.factory;
+            if(factory == null) return;
+            EntityData[] pool = factory.entityPool;
+            if(entityId <= 0 || pool == null || entityId >= pool.Length) return;
+            if(pool[entityId].protoId == UniversalDepotPlugin.DepotItemId.Value) {
+                size = UniversalDepotPlugin.SlotCount.Value;
             }
-            catch (Exception e)
-            {
-                Log?.LogError($"[Unload] Failed: {e}");
-            }
-            return base.Unload();
         }
     }
 }

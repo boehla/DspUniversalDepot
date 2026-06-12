@@ -1,116 +1,80 @@
 # DspUniversalDepot
 
-A Dyson Sphere Program mod that adds a **Universal Planetary Depot** with:
-
-- **Configurable item limit** per slot (default: 5000)
-- **Dynamic slot allocation** — slots are created automatically for each unique item type
-- **Overflow deletion** (optional) — keep your conveyor belts running forever
-- **Nebula Multiplayer compatibility** — works in multiplayer without breaking sync
+A Dyson Sphere Program mod that adds a **Universal Planetary Depot** — a storage
+building with a large, configurable slot count.
 
 ![Icon](icon.png)
 
-## Features
+## How it works
 
-| Feature | Default | Configurable |
-|---------|---------|--------------|
-| Item limit per slot | 5000 | ✓ (1-999999) |
-| Dynamic slots | enabled | ✓ |
-| Overflow deletion | disabled | ✓ |
-| Max slot count | 1000 | ✓ (0 = unlimited) |
-| Belt lanes | 3 in / 3 out (MK1/MK2/MK3) | — |
-| ILS remote ports | 0 (planet-only) | — |
+The depot is **cloned from the vanilla storage box** at load time using
+[LDBTool](https://thunderstore.io/c/dyson-sphere-program/p/xiaoye97/LDBTool/).
+Because it stays a real DSP storage entity, it keeps full compatibility with:
+
+- belts and sorters,
+- the normal storage window UI,
+- and the **native save format** — contents persist with your save, no extra
+  save mod required.
+
+The only thing the mod changes is the slot count: a small Harmony patch on
+`FactoryStorage.NewStorageComponent` forces our building's storage to
+`SlotCount` slots (default 500) instead of the vanilla 30–60.
+
+> **v0.4.0 was a full rewrite.** Earlier versions (≤ 0.3.0) targeted a BepInEx 6
+> / IL2CPP / .NET 6 setup and a custom dictionary-based storage that **never
+> loaded into the game** — DSP is a Mono game, and storage is a fixed-grid
+> `StorageComponent`. See the changelog for details.
 
 ## Recipe
 
-Universal Depot is **expensive** to balance the unlimited storage:
+Hand-craftable / assembler recipe (available without research):
 
-- 30x Titanium Ingot
-- 20x Circuit Board
-- 10x Microcrystalline Component
-- 2x Particle Broad-band
-- Craft time: 10s
+- 20× Titanium Ingot
+- 10× Circuit Board
+- Craft time: 2 s → 1× Universal Planetary Depot
 
 ## Installation
 
-### For Players (using pre-built release)
+### Players (Thunderstore / r2modman / Mod Manager)
 
-1. Install [BepInEx 5.4.x](https://thunderstore.io/c/dyson-sphere-program/p/BepInEx/BepInExPack/) for DSP
-2. Download the latest release from [Releases](https://github.com/boehla/DspUniversalDepot/releases)
-3. Extract `DspUniversalDepot.dll` to `BepInEx/plugins/`
-4. Launch DSP — config is auto-generated at `BepInEx/config/com.boehla.dspuniversaldepot.cfg`
+1. Install [BepInEx 5.4.x](https://thunderstore.io/c/dyson-sphere-program/p/BepInEx/BepInExPack/) for DSP.
+2. Install [LDBTool](https://thunderstore.io/c/dyson-sphere-program/p/xiaoye97/LDBTool/) (required dependency).
+3. Download the latest [release](https://github.com/boehla/DspUniversalDepot/releases) and
+   extract `DspUniversalDepot.dll` into `BepInEx/plugins/`.
+4. Launch DSP. The depot appears in the storage build category. Config is generated at
+   `BepInEx/config/com.boehla.dspuniversaldepot.cfg`.
 
-### For Developers (building from source)
+### Developers (build from source)
 
-See [docs/BUILDING.md](docs/BUILDING.md)
+See [docs/BUILDING.md](docs/BUILDING.md).
 
 ## Configuration
 
-Edit `BepInEx/config/com.boehla.dspuniversaldepot.cfg`:
+`BepInEx/config/com.boehla.dspuniversaldepot.cfg`:
 
 ```ini
 [General]
-## Maximum stack size per item slot
-ItemLimit = 5000
+## Number of storage slots in the Universal Depot (vanilla storage has 30-60).
+SlotCount = 500
 
-## Automatically create new slots for unseen items
-DynamicSlots = true
+[Advanced]
+## Vanilla storage item that is cloned (2101 = Storage MK.I, 2102 = Storage MK.II).
+SourceStorageItemId = 2102
 
-## Maximum number of unique item types the depot can store (0 = unlimited)
-MaxSlotCount = 1000
+## Item / Recipe IDs — change only on conflict with another mod.
+DepotItemId = 7777
+DepotRecipeId = 7777
 
-## Delete oldest items when full (conveyor keeps running)
-DeleteOverflow = false
+## Column (1-12) inside the storage build category where the icon appears.
+BuildBarIndex = 12
 ```
-
-## How It Works
-
-DSP normally requires each storage type to have predefined slots in its
-`ItemProto`. Universal Depot patches the local `StorageComponent` so any
-storage entity tagged as ours can dynamically accept and serve any item
-type without pre-allocation.
-
-When a belt requests `GetItemCount(itemId)`, the patch consults our
-`DepotStorage` which tracks counts per unique item ID in a dictionary.
-This works alongside DSP's own slot system — the depot looks like a
-"vanilla" storage to the conveyor logic.
 
 ## Compatibility
 
-- ✅ DSP 0.10.x
-- ✅ BepInEx 5.4.x (IL2CPP)
-- ✅ Nebula Multiplayer 0.10.x (no network-state changes)
-- ⚠️ Other storage mods — should work, but test together
-
-## Project Structure
-
-```
-DspUniversalDepot/
-├── manifest.json              Thunderstore package manifest
-├── icon.png                   Mod icon (256x256)
-├── README.md                  This file
-├── CHANGELOG.md               Version history
-├── LICENSE                    MIT
-├── CONTRIBUTING.md            Dev guide
-├── .github/
-│   ├── workflows/
-│   │   ├── build.yml          CI build verification
-│   │   └── release.yml        Auto-release on tag push
-│   └── ISSUE_TEMPLATE/        Bug/feature templates
-├── docs/
-│   └── BUILDING.md            Build instructions
-├── tools/
-│   └── AssetBundleBuilder.cs  Unity Editor script
-├── icons/
-│   ├── icon.png               256x256
-│   └── icon-128.png           128x128
-└── src/
-    ├── DspUniversalDepot.csproj
-    ├── UniversalDepotPlugin.cs     Main entry + config
-    ├── StorageManager.cs           Dynamic slot logic
-    ├── AssetBundleManager.cs       Icon/model loader
-    ├── LDBPatcher.cs               DSP database hooks
-    └── ConveyorPatcher.cs          Belt/storage interface
-```
+- ✅ BepInEx 5.4.x (Mono)
+- ✅ LDBTool 3.x (required)
+- ✅ Native save/load (no DSPModSave needed)
+- ⚠️ Other storage / building mods — should work; test together
 
 ## License
 

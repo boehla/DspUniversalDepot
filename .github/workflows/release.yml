@@ -29,13 +29,8 @@ jobs:
         run: |
           mkdir -p release
           cp -r src/ release/
-          cp manifest.json release/
-          cp README.md release/
-          cp LICENSE release/
-          cp CHANGELOG.md release/
-          cp icon.png release/
+          cp manifest.json README.md LICENSE CHANGELOG.md icon.png release/
           cp -r docs/ release/
-          cp -r tools/ release/
           cd release
           zip -r ../DspUniversalDepot-v${{ steps.version.outputs.version }}-source.zip .
           cd ..
@@ -49,10 +44,13 @@ jobs:
 
             ### Installation
             1. Install [BepInEx 5.4.x](https://thunderstore.io/c/dyson-sphere-program/p/BepInEx/BepInExPack/) for DSP
-            2. Download `DspUniversalDepot-v${{ steps.version.outputs.version }}-source.zip` below
-            3. Extract `src/bin/Release/net6.0/DspUniversalDepot.dll` to `BepInEx/plugins/`
-            4. (Optional) Build AssetBundle per `docs/BUILDING.md` and copy `universaldepot.assets` next to the DLL
-            5. Launch DSP — config at `BepInEx/config/com.boehla.dspuniversaldepot.cfg`
+            2. Install [LDBTool](https://thunderstore.io/c/dyson-sphere-program/p/xiaoye97/LDBTool/) (required)
+            3. Download the `DspUniversalDepot.dll` asset below and drop it into `BepInEx/plugins/`
+            4. Launch DSP — config at `BepInEx/config/com.boehla.dspuniversaldepot.cfg`
+
+            > The compiled `DspUniversalDepot.dll` is built locally against the proprietary
+            > DSP `Assembly-CSharp.dll` (which cannot be redistributed via CI) and attached
+            > manually to each release. The source zip is provided for reference.
 
             See [README.md](https://github.com/boehla/DspUniversalDepot#readme) for full docs.
           files: |

@@ -1,121 +1,35 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <!--
+      DSP runs on Mono (.NET Framework 4.x via Unity MonoBleedingEdge), so a
+      BepInEx 5 plugin MUST target net472 and reference the real game DLLs.
+      (The pre-0.4 net6.0 / IL2CPP setup never loaded into the game.)
+    -->
+    <TargetFramework>net472</TargetFramework>
     <LangVersion>latest</LangVersion>
     <AssemblyName>DspUniversalDepot</AssemblyName>
     <RootNamespace>DspUniversalDepot</RootNamespace>
-    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
-    <Description>A universal planetary depot with configurable item limits and dynamic slot allocation.</Description>
+    <Version>0.4.0</Version>
+    <Description>A planetary depot building with a configurable, very large slot count. Clones the vanilla storage so it stays fully compatible with belts, sorters, the storage UI and native save/load.</Description>
     <Authors>boehla</Authors>
-    <Version>0.3.0</Version>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!--
-      NoWarn: we suppress common warnings from the dynamic storage code
-      (unused private fields, casts, etc.) but DO NOT mask compile errors
-      like CS0246 (type not found) or CS0108 (member hiding).
-    -->
-    <NoWarn>CS0414;CS0169;CS0649;CS0067;CS0117;CS0029;CS0019;CS1503;CS0118;CS0234;CS0021;CS0436</NoWarn>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <!--
-    ====================================================================
-    BUILD MODES
-    ====================================================================
-
-    Mode 1: Real DSP DLLs (default, cross-platform)
-    =====
-      dotnet build -c Release
-      Uses the ./libs/ folder (auto-downloaded by download-libs.sh).
-      BepInEx, Harmony, UnityEngine: real refs from libs/
-      DSP game types (StorageComponent, PlanetFactory, GameSave, ...):
-        provided by _DSPStubs.cs since Assembly-CSharp.dll is
-        proprietary and not available on NuGet. These stubs are
-        SHADOWED at runtime by the real types from Assembly-CSharp.dll
-        that BepInEx loads before the plugin.
-
-    Mode 2: Real DSP install (Windows + DSP installed, for production)
-    =====
-      set DSP_GAME_PATH="C:\Program Files (x86)\Steam\steamapps\common\Dyson Sphere Program"
-      dotnet build -c Release
-      Uses DLLs from your live DSP install for guaranteed version match.
-
-    Mode 3: CI / sandbox (no DSP, no libs)
-    =====
-      rm -rf ../libs && dotnet build -c Release
-      Builds against _DSPStubs.cs only. The DLL COMPILES but cannot be
-      loaded into DSP (would conflict on type names). Useful only for
-      compile-time CI validation.
+    All reference assemblies live in ../libs/ (gitignored). Populate them once
+    with:  bash dotnet/scripts/download-libs.sh
+    That script copies Assembly-CSharp.dll + UnityEngine*.dll from your local
+    DSP install and downloads BepInEx 5.4.21 + LDBTool. These references are
+    <Private>false</Private> so they are NOT copied into the build output.
   -->
-
-  <PropertyGroup Condition="'$(DSP_USE_STUBS)' == 'true'">
-    <DefineConstants>$(DefineConstants);HAS_DSP_REFS</DefineConstants>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(DSP_GAME_PATH)' != ''">
-    <DefineConstants>$(DefineConstants);HAS_DSP_REFS</DefineConstants>
-  </PropertyGroup>
-
-  <!-- Reference real BepInEx/Harmony/Unity DLLs from ./libs/ if present -->
-  <ItemGroup Condition="Exists('../libs/') And '$(DSP_USE_STUBS)' != 'true'">
-    <Reference Include="BepInEx">
-      <HintPath>../libs/BepInEx.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="BepInEx.Harmony">
-      <HintPath>../libs/BepInEx.Harmony.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="BepInEx.Preloader">
-      <HintPath>../libs/BepInEx.Preloader.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="0Harmony">
-      <HintPath>../libs/0Harmony.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine">
-      <HintPath>../libs/UnityEngine.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.CoreModule">
-      <HintPath>../libs/UnityEngine.CoreModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.AssetBundleModule">
-      <HintPath>../libs/UnityEngine.AssetBundleModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>../libs/UnityEngine.IMGUIModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.UIModule">
-      <HintPath>../libs/UnityEngine.UIModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.UIElementsModule">
-      <HintPath>../libs/UnityEngine.UIElementsModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.JSONSerializeModule">
-      <HintPath>../libs/UnityEngine.JSONSerializeModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-  </ItemGroup>
-
-  <!--
-    If DSP_GAME_PATH is set, use DLLs directly from the DSP install.
-    This guarantees version match.
-  -->
-  <ItemGroup Condition="'$(DSP_GAME_PATH)' != '' And '$(DSP_USE_STUBS)' != 'true'">
-    <Reference Include="BepInEx">
-      <HintPath>$(DSP_GAME_PATH)BepInEx\core\BepInEx.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Assembly-CSharp">
-      <HintPath>$(DSP_GAME_PATH)Dyson Sphere Program_Data\Managed\Assembly-CSharp.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp"><HintPath>../libs/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>../libs/UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>../libs/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx"><HintPath>../libs/BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>../libs/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="LDBTool"><HintPath>../libs/LDBTool.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 </Project>

@@ -5,6 +5,35 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-12
+
+### Complete rewrite — the mod now actually works in DSP
+
+Versions ≤ 0.3.0 could not load into the game at all. They targeted BepInEx 6 /
+IL2CPP / .NET 6, but **DSP is a Mono game** (BepInEx 5, `net472`). On top of that
+the storage logic used a custom dictionary plus the fictional
+`DSPModSave.SaveDataManager` / `MiniJSON` APIs, and registered protos through
+reflection with wrong assembly/type names (`, DSPGAME`, `EItemType.Storage`,
+`DSPString.StringManager`, …). None of that exists in the real game.
+
+### Changed
+- **Targets `net472` and `BaseUnityPlugin`** (BepInEx 5 Mono) — builds against the
+  real `Assembly-CSharp.dll` + `UnityEngine*.dll` from a local DSP install.
+- **The depot is now a cloned vanilla storage building** (via LDBTool
+  `MethedEx.Copy`), so it keeps belts, sorters, the storage UI and native
+  save/load. No custom storage, no DSPModSave, no MiniJSON.
+- **Capacity** is controlled by a single Harmony prefix on
+  `FactoryStorage.NewStorageComponent` that sets the slot count for our protoId.
+- Recipe simplified to 20× Titanium Ingot + 10× Circuit Board, 2 s.
+- Config reduced to `SlotCount` + advanced IDs / build-bar column.
+- Manifest now declares the real dependencies: BepInEx pack + `xiaoye97-LDBTool`.
+
+### Removed
+- `StorageManager`, `ConveyorPatcher`, `LDBPatcher`, `RecipePatcher`,
+  `AssetBundleManager`, `_Stubs.cs`, `_DSPStubs.cs`, `tools/AssetBundleBuilder.cs`
+  — all obsolete with the new approach.
+- The IL2CPP/.NET 6 build modes and the NuGet-stub machinery.
+
 ## [0.3.0] - 2026-06-12
 
 ### Fixed (Code Review from subagent audit)

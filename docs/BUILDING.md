@@ -1,64 +1,61 @@
 # Building DspUniversalDepot
 
-This guide explains how to build the mod from source.
-
 ## Prerequisites
 
 | Tool | Version | Why |
 |------|---------|-----|
-| .NET SDK | 6.0+ | Compiles the C# plugin DLL |
-| Unity Editor | 2022.3.x | Builds the AssetBundle (icon + 3D model) |
-| Dyson Sphere Program | 0.10.x | Provides UnityEngine + Assembly-CSharp references |
+| .NET SDK | 6.0+ | Compiles the C# plugin (project targets `net472`) |
+| Dyson Sphere Program | installed | Provides `Assembly-CSharp.dll` + `UnityEngine*.dll` |
 
-## Step 1: Build the plugin DLL
+DSP runs on **Mono**, so the plugin targets `net472` and is a BepInEx 5
+`BaseUnityPlugin`. There is no IL2CPP / .NET 6 runtime involved.
 
-Set the `DSP_GAME_PATH` environment variable to your DSP install directory:
+## Step 1: Fetch reference DLLs
 
-```powershell
-# Windows PowerShell
-$env:DSP_GAME_PATH = "C:\Program Files (x86)\Steam\steamapps\common\Dyson Sphere Program"
+```bash
+bash dotnet/scripts/download-libs.sh
+```
+
+This populates `../libs/` (gitignored) with:
+
+- `Assembly-CSharp.dll`, `UnityEngine.dll`, `UnityEngine.CoreModule.dll`
+  — copied from your local DSP install,
+- `BepInEx.dll`, `0Harmony.dll` — BepInEx 5.4.21,
+- `LDBTool.dll` — from NuGet (`DysonSphereProgram.Modding.LDBTool`).
+
+If DSP is not at the default Steam path, set `DSP_GAME_PATH` first:
+
+```bash
+export DSP_GAME_PATH="/c/Program Files (x86)/Steam/steamapps/common/Dyson Sphere Program"
+bash dotnet/scripts/download-libs.sh
+```
+
+## Step 2: Build
+
+```bash
 cd src
 dotnet build -c Release
 ```
 
-Output: `src/bin/Release/net6.0/DspUniversalDepot.dll`
+Output: `src/bin/Release/DspUniversalDepot.dll`
 
-## Step 2: Build the AssetBundle (optional but recommended)
-
-If you have Unity 2022.3.x installed:
-
-1. Open Unity Hub → New Project → 3D URP Template
-2. Copy the contents of `tools/AssetBundleBuilder.cs` to `Assets/Editor/`
-3. Copy `icons/icon.png` to `Assets/source/icon.png`
-4. (Optional) Add a 3D model to `Assets/source/UniversalDepot.fbx`
-5. Run: `Unity.exe -batchmode -quit -projectPath . -executeMethod AssetBundleBuilder.Build`
-6. Output: `Assets/StreamingAssets/universaldepot.assets`
-
-## Step 3: Install
-
-Copy these files to your DSP `BepInEx/plugins/` folder:
+## Step 3: Install for testing
 
 ```
-BepInEx/plugins/DspUniversalDepot/
-  ├── DspUniversalDepot.dll       (from step 1)
-  └── universaldepot.assets       (from step 2, optional)
+BepInEx/plugins/DspUniversalDepot/DspUniversalDepot.dll
+BepInEx/plugins/LDBTool/LDBTool.dll        (required dependency)
 ```
 
-## Step 4: Configure
-
-The config file is auto-generated on first launch at:
-`BepInEx/config/com.boehla.dspuniversaldepot.cfg`
+Launch DSP. The config is generated at
+`BepInEx/config/com.boehla.dspuniversaldepot.cfg`, and the depot appears in the
+storage build category.
 
 ## Troubleshooting
 
-### "DSP_GAME_PATH not set"
-Set the env var before running `dotnet build`. The build script references
-`$DSP_GAME_PATH/DSPGAME_Data/Managed/*.dll` for Unity/Assembly-CSharp.
-
 ### "Missing reference to Assembly-CSharp"
-The DSP install path is wrong. Verify `$env:DSP_GAME_PATH` points to the
-folder containing `DSPGAME.exe` and `DSPGAME_Data/`.
+`../libs/` is empty or DSP wasn't found. Re-run `download-libs.sh` (optionally
+with `DSP_GAME_PATH` set to the folder containing `DSPGAME.exe`).
 
-### "AssetBundle not found at runtime"
-This is normal if you skipped step 2. The mod falls back to DSP's
-vanilla storage tank visual and still works functionally.
+### The depot doesn't appear in the build menu
+LDBTool must be installed in `BepInEx/plugins/`. Check `BepInEx/LogOutput.log`
+for the `[Depot] Registered item ...` line.

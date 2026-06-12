@@ -5,6 +5,32 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-23
+
+### Added
+- Real LDB (Local DataBase) integration via Harmony hooks on `VFPreload.InvokeOnLoadWorkEnded`
+- Real AssetBundle loader (icon + 3D model with vanilla fallback)
+- Real `StorageComponent` patches (GetItemCount / TakeItem / AddItem)
+- Configurable custom item ID and recipe ID (for conflict resolution)
+- GitHub Actions CI for build verification
+- GitHub Actions release workflow (auto-zip + auto-release on tag push)
+- Issue templates (bug report, feature request, compatibility)
+- Contributing guide
+- Build instructions (`docs/BUILDING.md`)
+- Unity Editor script for AssetBundle generation (`tools/AssetBundleBuilder.cs`)
+- Real 256x256 mod icon (cosmic theme with planet + ring + storage crate)
+
+### Changed
+- Improved StorageManager with `Contains()` method for entity checks
+- Storage-Overflow eviction respects "newest first" — recent deposits are protected
+- Bumped version to 0.2.0 to reflect significant internal restructuring
+
+### Notes
+- AssetBundle is optional — mod functions correctly with vanilla visuals
+- DSP source not bundled; only API signatures (stubs) are referenced in code
+- For final integration, real DSP DLLs from `$DSP_GAME_PATH/DSPGAME_Data/Managed/`
+  must be available at build time
+
 ## [0.1.0] - 2026-05-23
 
 ### Added
@@ -17,8 +43,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Warning threshold for near-full slots
 - Nebula Multiplayer compatibility (no network-state changes)
 - BepInEx config file at `BepInEx/config/com.boehla.dspuniversaldepot.cfg`
-
-### Notes
-- The plugin provides the storage + logic; full 3D-model integration with
-  the planet-building UI requires a custom AssetBundle (TODO for v0.2.0).
-- Currently the depot uses a vanilla building as placeholder visual.

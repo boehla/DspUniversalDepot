@@ -1,0 +1,61 @@
+name: Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building release for v$VERSION"
+
+      - name: Package source
+        run: |
+          mkdir -p release
+          cp -r src/ release/
+          cp manifest.json release/
+          cp README.md release/
+          cp LICENSE release/
+          cp CHANGELOG.md release/
+          cp icon.png release/
+          cp -r docs/ release/
+          cp -r tools/ release/
+          cd release
+          zip -r ../DspUniversalDepot-v${{ steps.version.outputs.version }}-source.zip .
+          cd ..
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.version.outputs.version }}
+          body: |
+            ## DspUniversalDepot v${{ steps.version.outputs.version }}
+
+            ### Installation
+            1. Install [BepInEx 5.4.x](https://thunderstore.io/c/dyson-sphere-program/p/BepInEx/BepInExPack/) for DSP
+            2. Download `DspUniversalDepot-v${{ steps.version.outputs.version }}-source.zip` below
+            3. Extract `src/bin/Release/net6.0/DspUniversalDepot.dll` to `BepInEx/plugins/`
+            4. (Optional) Build AssetBundle per `docs/BUILDING.md` and copy `universaldepot.assets` next to the DLL
+            5. Launch DSP — config at `BepInEx/config/com.boehla.dspuniversaldepot.cfg`
+
+            See [README.md](https://github.com/boehla/DspUniversalDepot#readme) for full docs.
+          files: |
+            DspUniversalDepot-v${{ steps.version.outputs.version }}-source.zip
+          draft: false
+          prerelease: false

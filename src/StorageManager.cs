@@ -37,6 +37,8 @@ namespace DspUniversalDepot
             }
         }
 
+        public bool Contains(int entityId) => _depots.ContainsKey(entityId);
+
         public void Clear()
         {
             _depots.Clear();

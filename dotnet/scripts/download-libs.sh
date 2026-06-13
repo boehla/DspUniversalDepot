@@ -43,6 +43,18 @@ unzip -oq "$TMP/ldbtool.nupkg" -d "$TMP/ldbtool"
 cp "$TMP/ldbtool/lib/net472/LDBTool.dll" "$LIBS_DIR/"
 echo "  ✓ LDBTool.dll v$VER"
 
+# --- 4. NebulaAPI (Thunderstore, optional soft dependency) -------------------
+echo "==> NebulaAPI (Thunderstore)"
+NEB_URL="$(curl -sL --max-time 15 "https://thunderstore.io/api/experimental/package/nebula/NebulaMultiplayerModApi/" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['latest']['download_url'])" 2>/dev/null)"
+if [ -n "$NEB_URL" ] && curl -sL --max-time 60 "$NEB_URL" -o "$TMP/nebapi.zip"; then
+  unzip -oq "$TMP/nebapi.zip" -d "$TMP/nebapi"
+  NEB_DLL="$(find "$TMP/nebapi" -iname 'NebulaAPI.dll' | head -1)"
+  [ -n "$NEB_DLL" ] && cp "$NEB_DLL" "$LIBS_DIR/" && echo "  ✓ NebulaAPI.dll"
+else
+  echo "  ! NebulaAPI.dll not fetched (multiplayer build needs it). Copy it from a Nebula install."
+fi
+
 rm -rf "$TMP"
 echo "==> Done. $(ls "$LIBS_DIR" | wc -l) DLLs in $LIBS_DIR"
 echo "Build with: cd src && dotnet build -c Release"

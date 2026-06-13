@@ -1,8 +1,10 @@
 using BepInEx;
+using BepInEx.Bootstrap;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using System;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 using xiaoye97;
@@ -29,10 +31,14 @@ namespace DspUniversalDepot {
     [BepInPlugin(GUID, NAME, VERSION)]
     [BepInProcess("DSPGAME.exe")]
     [BepInDependency("me.xiaoye97.plugin.Dyson.LDBTool")]
+    [BepInDependency(NEBULA_API_GUID, BepInDependency.DependencyFlags.SoftDependency)]
     public class UniversalDepotPlugin : BaseUnityPlugin {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.5.0";
+        public const string VERSION = "0.6.0";
+
+        // Nebula's API plugin GUID — kept as a literal so the no-Nebula path never touches a Nebula type.
+        public const string NEBULA_API_GUID = "dsp.nebula-multiplayer-api";
 
         public static ManualLogSource Log;
 
@@ -69,6 +75,12 @@ namespace DspUniversalDepot {
 
             Harmony harmony = new Harmony(GUID);
             harmony.PatchAll(typeof(UniversalDepotPlugin).Assembly);
+
+            // Wire up Nebula multiplayer sync only when its API is actually loaded. The ContainsKey check
+            // uses a string literal, so no Nebula type is referenced on the no-Nebula path.
+            if(Chainloader.PluginInfos.ContainsKey(NEBULA_API_GUID)) {
+                NebulaCompat.TryInit(Assembly.GetExecutingAssembly());
+            }
 
             Log.LogInfo($"{NAME} v{VERSION} initialised (slots={SlotCount.Value}, source={SourceItemId.Value})");
         }
@@ -271,6 +283,10 @@ namespace DspUniversalDepot {
             // Discriminator: only our enlarged, planetary, non-collector depots.
             if(storage == null || storage.Length <= 6) return true;
             if(__instance.isCollector || __instance.isVeinCollector || __instance.isStellar) return true;
+            // In multiplayer the host is authoritative for the factory tick and Nebula syncs station
+            // storage down; a client must not also consume belt items / assign slots or it would diverge.
+            // (The Enabled gate keeps this Nebula-free in singleplayer / without Nebula.)
+            if(NebulaCompat.Enabled && NebulaCompat.IsClientInMultiplayer) return true;
 
             int max = UniversalDepotPlugin.SupplyMaxPerSlot.Value;
             int[] needs = _tmpNeeds ?? (_tmpNeeds = new int[6]);

@@ -5,6 +5,29 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-06-13
+
+### Nebula multiplayer support
+
+Adds a clean, optional [Nebula](https://thunderstore.io/c/dyson-sphere-program/p/nebula/NebulaMultiplayerMod/)
+integration. All Nebula references are isolated in `NebulaCompat.cs` and gated so the mod
+runs unchanged in singleplayer / without Nebula installed.
+
+- **Soft dependency** on `dsp.nebula-multiplayer-api`; wired up only when that plugin is loaded
+  (string-literal Chainloader check keeps the no-Nebula path free of Nebula types).
+- **`IMultiplayerMod` version check** so Nebula enforces that host and every client run the same
+  mod version — required, since the depot adds a building proto and patches station logic.
+- **Overflow toggle is synced** (`DepotOverflowPacket` + processor): a client's click is sent to
+  the host, applied authoritatively, and re-broadcast to the planet.
+- **Belt auto-register is host-authoritative**: in a session, clients skip the custom belt handler
+  so the host is the single source of truth and Nebula syncs depot storage down — preventing desync.
+
+**Install on host/server AND every client** (same version).
+
+> **Testing note:** the Nebula path builds against the real `NebulaAPI` but is **not yet verified in
+> a live multiplayer session**. Place a depot, belt items in, and confirm host + client see identical
+> contents, drone delivery, and overflow-toggle state.
+
 ## [0.5.0] - 2026-06-13
 
 ### The depot is now a planetary supply station (drone logistics)

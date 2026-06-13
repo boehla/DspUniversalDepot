@@ -90,8 +90,12 @@ BuildBarIndex = 12
 - ✅ BepInEx 5.4.x (Mono)
 - ✅ LDBTool 3.x (required)
 - ✅ Native save/load (no DSPModSave needed)
+- ✅ **Nebula multiplayer** — soft dependency. When Nebula is present the mod registers a
+  version check (`IMultiplayerMod`) and syncs the overflow toggle; the host stays
+  authoritative for belt input and Nebula syncs depot contents to clients. **Install the
+  same mod version on the host/server *and* every client.** (Verify in your session — see
+  the changelog's testing note.)
 - ⚠️ Other logistics-station mods — both patch `StationComponent`; test together
-- ⚠️ Multiplayer / Nebula — untested
 
 ## License
 

@@ -5,7 +5,7 @@
   "description": "A planetary supply station that holds many item kinds. Feed it by belt and drones deliver the items to any station on the planet that demands them. Cloned from the vanilla logistics station; saves natively.",
   "icon": "icon.png",
   "dependencies": [
-    "BepInEx-BepInExPack-5.4.2100",
+    "xiaoye97-BepInEx-5.4.17",
     "xiaoye97-LDBTool-3.0.0"
   ]
 }

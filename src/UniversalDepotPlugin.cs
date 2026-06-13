@@ -4,6 +4,7 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using System;
+using System.IO;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
@@ -48,6 +49,7 @@ namespace DspUniversalDepot {
         public static ConfigEntry<int> DepotItemId;
         public static ConfigEntry<int> DepotRecipeId;
         public static ConfigEntry<int> BuildBarIndex;
+        public static ConfigEntry<int> DepotGridIndex;
 
         private void Awake() {
             Log = Logger;
@@ -66,12 +68,26 @@ namespace DspUniversalDepot {
                 "Item ID for the Universal Depot. Change only if it conflicts with another mod.");
             DepotRecipeId = Config.Bind("Advanced", "DepotRecipeId", 7777,
                 "Recipe ID for the Universal Depot. Change only if it conflicts with another mod.");
-            BuildBarIndex = Config.Bind("Advanced", "BuildBarIndex", 12,
-                "Column (1-12) inside the build category where the depot icon appears.");
+            BuildBarIndex = Config.Bind("Advanced", "BuildBarIndex", 7,
+                "Slot (F-key position) inside the build category where the depot appears.\n" +
+                "The Transportation category fills slots F2-F6 in vanilla, so 7 (F7) appends\n" +
+                "the depot right after them. Avoid leaving a gap (e.g. 12): DSP only renders a\n" +
+                "contiguous run of slots, so a gapped slot stays invisible.");
+            DepotGridIndex = Config.Bind("Advanced", "DepotGridIndex", 0,
+                "Replicator grid cell for the depot (format page*1000 + row*100 + col, e.g. 2501).\n" +
+                "0 = auto: keep the cloned station's tab/page but move it to an empty row so it\n" +
+                "no longer hides behind the Planetary Logistics Station's cell. Set explicitly\n" +
+                "to relocate it within the replicator.");
 
             // LDBTool fires PreAddDataAction once the vanilla protos are loaded
             // but before it merges custom protos — the right moment to clone.
             LDBTool.PreAddDataAction += registerDepot;
+            // …and PostAddDataAction once those custom protos are merged into LDB — the right
+            // moment to Preload them. LDBTool never calls Preload() on the protos it injects, and
+            // the game's own Preload pass already ran (it precedes InvokeOnLoadWorkEnded, where
+            // LDBTool adds protos). Without this the depot ItemProto keeps recipes/makes/maincraft
+            // == null, and the replicator NREs the instant the depot recipe is clicked.
+            LDBTool.PostAddDataAction += finalizeDepotProtos;
 
             Harmony harmony = new Harmony(GUID);
             harmony.PatchAll(typeof(UniversalDepotPlugin).Assembly);
@@ -117,23 +133,83 @@ namespace DspUniversalDepot {
                     "kinds and saves natively with your game.";
                 item.Type = EItemType.Logistics;
                 item.BuildIndex = category * 100 + index;
+                item.GridIndex = depotGridIndex(src);
                 item.preTech = null;
                 item.IsEntity = true;
                 item.CanBuild = true;
+                // -1 = "always unlocked". The depot recipe hangs off no tech (preTech=null), so it
+                // never enters GameHistoryData.recipeUnlocked on its own — and UIBuildMenu hides any
+                // item whose ItemUnlocked() is false. UnlockKey=-1 makes ItemUnlocked short-circuit
+                // to true (independent of whether FindRecipes manages to link maincraft), so the
+                // building shows in the build menu from the start. The replicator separately needs
+                // the recipe in recipeUnlocked — see DepotRecipeUnlockPatch.
+                item.UnlockKey = -1;
+
+                // src.Copy() copies the PLS's public recipe fields, and ItemProto.FindRecipes()
+                // early-returns when `recipes != null` — so without this, DSP keeps the PLS recipe
+                // link and the depot's tooltip shows the PLS recipe. Null them out so FindRecipes
+                // re-derives the link from our recipe (Results=[depot]) during proto preload.
+                item.recipes = null;
+                item.handcrafts = null;
+                item.makes = null;
+                item.maincraft = null;
+                item.handcraft = null;
 
                 RecipeProto recipe = buildRecipe(src, item);
-                item.maincraft = recipe;
-                item.handcraft = recipe;
 
                 LDBTool.PreAddProto(item);
                 LDBTool.PreAddProto(recipe);
                 LDBTool.SetBuildBar(category, index, item.ID);
 
                 Log.LogInfo($"[Depot] Registered item {item.ID} cloned from {src.ID} \"{src.Name}\" " +
-                    $"(model={src.ModelIndex}) at build bar {category},{index} with {SlotCount.Value} supply slots");
+                    $"(model={src.ModelIndex}, grid={item.GridIndex}, srcGrid={src.GridIndex}) at build bar " +
+                    $"{category},{index} with {SlotCount.Value} supply slots");
             } catch(Exception ex) {
                 Log.LogError($"[Depot] registerDepot failed: {ex}");
             }
+        }
+
+        /// <summary>
+        /// Preloads the depot item + recipe after LDBTool has merged them into LDB. The game runs
+        /// its per-proto <c>Preload()</c> pass (which calls <c>ItemProto.FindRecipes()</c>) before
+        /// the <c>InvokeOnLoadWorkEnded</c> hook where LDBTool injects custom protos, and LDBTool
+        /// itself never preloads them — so our protos would otherwise stay half-initialised. In
+        /// particular <c>ItemProto.recipes/makes/maincraft</c> remain null (we deliberately nulled
+        /// them in <see cref="registerDepot"/> so FindRecipes re-derives the link to our recipe),
+        /// and <c>UIReplicatorWindow.OnSelectedRecipeChange</c> dereferences <c>makes</c> directly,
+        /// crashing the moment the depot recipe is selected. Calling Preload here runs FindRecipes
+        /// (now that our recipe is in LDB.recipes) and loads the recipe's icon.
+        /// </summary>
+        private void finalizeDepotProtos() {
+            try {
+                RecipeProto recipe = LDB.recipes.Select(DepotRecipeId.Value);
+                if(recipe != null) {
+                    recipe.Preload(Array.IndexOf(LDB.recipes.dataArray, recipe));
+                }
+                ItemProto item = LDB.items.Select(DepotItemId.Value);
+                if(item != null) {
+                    // Preload → FindRecipes links our recipe (Results=[depot]) into recipes/makes/
+                    // maincraft. recipes is null (from registerDepot) so FindRecipes won't early-return.
+                    item.Preload(Array.IndexOf(LDB.items.dataArray, item));
+                    Log.LogInfo($"[Depot] Preloaded depot proto (recipes={item.recipes?.Count ?? -1}, " +
+                        $"makes={item.makes?.Count ?? -1}, maincraft={(item.maincraft != null ? item.maincraft.ID : 0)})");
+                }
+            } catch(Exception ex) {
+                Log.LogError($"[Depot] finalizeDepotProtos failed: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Replicator grid cell for the depot. DSP decodes GridIndex as page*1000 + row*100 + col.
+        /// Cloning kept the PLS's GridIndex, so the depot sat on the exact same replicator cell as
+        /// the station and was invisible. Auto mode keeps the station's page (Buildings tab) but
+        /// drops it into row 5 col 1 — empty in vanilla — so it shows as its own icon.
+        /// </summary>
+        private int depotGridIndex(ItemProto src) {
+            if(DepotGridIndex.Value > 0) return DepotGridIndex.Value;
+            int page = src.GridIndex / 1000;
+            if(page < 1) page = 2; // buildings page fallback
+            return page * 1000 + 5 * 100 + 1;
         }
 
         /// <summary>
@@ -151,7 +227,7 @@ namespace DspUniversalDepot {
             recipe.Handcraft = true;
             recipe.Explicit = true;
             recipe.TimeSpend = 120; // 2 seconds at 60 ticks/s
-            recipe.GridIndex = src.GridIndex;
+            recipe.GridIndex = item.GridIndex; // own cell, not the PLS's (else it hides in the replicator)
             recipe.Items = new int[] { 1106, 1303 }; // Titanium Ingot, Circuit Board
             recipe.ItemCounts = new int[] { 20, 10 };
             recipe.Results = new int[] { item.ID };
@@ -395,6 +471,70 @@ namespace DspUniversalDepot {
                 }
             } catch(Exception ex) {
                 UniversalDepotPlugin.Log.LogWarning($"[Depot] overflow UI patch failed: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Keeps the depot recipe in <c>GameHistoryData.recipeUnlocked</c>. The recipe hangs off no
+    /// tech (preTech=null) and is not in <c>freeMode.recipes</c>, so the game never unlocks it:
+    /// <c>SetForNewGame</c> only adds the free-mode recipes and <c>Import</c> only restores what a
+    /// save already had. Without this the recipe is absent from the unlock set, so the replicator
+    /// (filters by <c>RecipeUnlocked</c>) and the build menu (filters by <c>ItemUnlocked</c>, which
+    /// reads the same set) both hide the depot. We re-add it after a new game starts and after any
+    /// save loads, so it is always available — including in saves created before this fix.
+    /// </summary>
+    [HarmonyPatch(typeof(GameHistoryData))]
+    public static class DepotRecipeUnlockPatch {
+        [HarmonyPostfix]
+        [HarmonyPatch(nameof(GameHistoryData.SetForNewGame))]
+        public static void AfterNewGame(GameHistoryData __instance) => unlock(__instance);
+
+        [HarmonyPostfix]
+        [HarmonyPatch(nameof(GameHistoryData.Import), new[] { typeof(BinaryReader), typeof(bool) })]
+        public static void AfterImport(GameHistoryData __instance) => unlock(__instance);
+
+        private static void unlock(GameHistoryData history) {
+            if(history?.recipeUnlocked == null) return;
+            history.recipeUnlocked.Add(UniversalDepotPlugin.DepotRecipeId.Value);
+        }
+    }
+
+    /// <summary>
+    /// Enlarges the entity brief-info popup's icon pool so it can render our many-slot depot.
+    /// <c>UIEntityBriefInfo._OnUpdate</c> lays out one icon per station storage slot with an
+    /// <b>unbounded</b> loop — <c>for (i = 0; i &lt; num12; i++) icons[i].position = …</c>, where
+    /// <c>num12</c> is the slot count rounded up to the column count. Vanilla stations never exceed
+    /// the prefab's small <c>icons</c> array, so the missing bound is harmless there; our depot has
+    /// <see cref="UniversalDepotPlugin.SlotCount"/> (60) slots, so <c>icons[i]</c> runs off the end
+    /// and throws IndexOutOfRangeException every frame the depot is on screen. Growing the pool once
+    /// on creation — cloning the prefab's <c>icons[0]</c> exactly as the game's own _OnCreate does —
+    /// keeps every index in range. (+16 covers the column rounding plus the equipment/drone icons.)
+    /// </summary>
+    [HarmonyPatch(typeof(UIEntityBriefInfo), "_OnCreate")]
+    public static class BriefInfoIconPoolPatch {
+        [HarmonyPostfix]
+        public static void Postfix(UIEntityBriefInfo __instance) {
+            try {
+                UIIconCountInc[] icons = __instance.icons;
+                if(icons == null || icons.Length == 0 || icons[0] == null) return;
+                int needed = UniversalDepotPlugin.SlotCount.Value + 16;
+                if(icons.Length >= needed) return;
+
+                UIIconCountInc proto = icons[0];
+                UIIconCountInc[] grown = new UIIconCountInc[needed];
+                Array.Copy(icons, grown, icons.Length);
+                for(int i = icons.Length; i < needed; i++) {
+                    UIIconCountInc clone = UnityEngine.Object.Instantiate(proto, proto.transform.parent);
+                    clone.SetTransformIdentity();
+                    clone.visible = false;
+                    grown[i] = clone;
+                }
+                __instance.icons = grown;
+                UniversalDepotPlugin.Log.LogInfo($"[Depot] Brief-info icon pool grown {icons.Length} -> {needed} " +
+                    $"to fit {UniversalDepotPlugin.SlotCount.Value}-slot depots");
+            } catch(Exception ex) {
+                UniversalDepotPlugin.Log.LogWarning($"[Depot] brief-info icon pool patch failed: {ex.Message}");
             }
         }
     }

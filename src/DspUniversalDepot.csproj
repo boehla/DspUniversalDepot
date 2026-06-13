@@ -34,4 +34,22 @@
     <Reference Include="LDBTool"><HintPath>../libs/LDBTool.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="NebulaAPI"><HintPath>../libs/NebulaAPI.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
+
+  <!--
+    After each build, deploy the plugin DLL straight into the r2modman profile
+    so the running game picks up the new build (same idea as DspHttpStatsMod's
+    post-build xcopy). Only runs if the r2modman plugin folder already exists,
+    so the build still works on machines/CI that don't have r2modman installed.
+  -->
+  <PropertyGroup>
+    <R2modmanPluginDir>$(AppData)\r2modmanPlus-local\DysonSphereProgram\profiles\main\BepInEx\plugins\DspUniversalDepot-DspUniversalDepot</R2modmanPluginDir>
+  </PropertyGroup>
+  <Target Name="DeployToR2modman" AfterTargets="Build" Condition="Exists('$(R2modmanPluginDir)')">
+    <ItemGroup>
+      <DeployFiles Include="$(TargetDir)$(AssemblyName).dll" />
+      <DeployFiles Include="$(TargetDir)$(AssemblyName).pdb" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(R2modmanPluginDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
+    <Message Importance="high" Text="Deployed $(AssemblyName).dll to $(R2modmanPluginDir)" />
+  </Target>
 </Project>

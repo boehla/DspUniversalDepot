@@ -45,15 +45,18 @@ jobs:
             ### Installation
             1. Install [BepInEx 5.4.x](https://thunderstore.io/c/dyson-sphere-program/p/BepInEx/BepInExPack/) for DSP
             2. Install [LDBTool](https://thunderstore.io/c/dyson-sphere-program/p/xiaoye97/LDBTool/) (required)
-            3. Download the `DspUniversalDepot.dll` asset below and drop it into `BepInEx/plugins/`
-            4. Launch DSP — config at `BepInEx/config/com.boehla.dspuniversaldepot.cfg`
+            3. **r2modman users:** download the `DspUniversalDepot-*_r2modman.zip` asset and import it in r2modman.
+            4. **Manual install:** download `DspUniversalDepot.dll` from the r2modman zip and drop it into `BepInEx/plugins/`.
+            5. Launch DSP — config at `BepInEx/config/com.boehla.dspuniversaldepot.cfg`
 
             > The compiled `DspUniversalDepot.dll` is built locally against the proprietary
-            > DSP `Assembly-CSharp.dll` (which cannot be redistributed via CI) and attached
-            > manually to each release. The source zip is provided for reference.
+            > DSP `Assembly-CSharp.dll` (which cannot be redistributed via CI). The r2modman
+            > zip (containing the DLL plus manifest/icon/docs) is committed under `releases/`
+            > and re-attached here. The source zip is provided for reference.
 
             See [README.md](https://github.com/boehla/DspUniversalDepot#readme) for full docs.
           files: |
             DspUniversalDepot-v${{ steps.version.outputs.version }}-source.zip
+            releases/DspUniversalDepot-v${{ steps.version.outputs.version }}-r2modman.zip
           draft: false
           prerelease: false

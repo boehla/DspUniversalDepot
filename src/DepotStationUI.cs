@@ -35,6 +35,14 @@ namespace DspUniversalDepot {
     internal class DepotGridView {
         public GameObject root;
         public DepotCell[] cells;
+        // The window is shared with normal stations, so we move the vanilla overflow checkbox to
+        // the window top for depots and must restore its original transform for everything else.
+        public bool checkboxCaptured;
+        public Transform cbParent;
+        public Vector2 cbAnchorMin;
+        public Vector2 cbAnchorMax;
+        public Vector2 cbPivot;
+        public Vector2 cbPos;
     }
 
     public static class DepotStationUI {
@@ -49,12 +57,16 @@ namespace DspUniversalDepot {
 
         private static Sprite whiteSprite;
 
-        // Layout constants. Tiles are square; column count / visible rows come from config,
-        // the actual cell size is derived from the window width at build time.
-        private const float gridTop = -90f;     // grid top edge — where the vanilla rows began
-        private const float gridLeft = 24f;
+        // Layout constants. Tiles are a FIXED square size (deriving it from the window width made
+        // the cells — and therefore the whole window — balloon when the width read large at build
+        // time). Column count / visible rows come from config; the grid width follows from them.
+        private const float cellSize = 46f;
+        private const float gridTop = -86f;      // grid top edge, just below the moved checkbox
+        private const float gridLeft = 20f;
         private const float gridSpacing = 4f;
-        private const float windowChrome = 330f; // header + bottom config panel kept around the grid
+        private const float windowFooter = 200f; // room kept below the grid for the vanilla config panel
+        private const float checkboxTop = -52f;  // overflow checkbox: just under the title bar
+        private const float checkboxLeft = 24f;
 
         private static Sprite White() {
             if(whiteSprite == null) {
@@ -100,8 +112,9 @@ namespace DspUniversalDepot {
                     }
 
                     if(!depot) {
-                        if(views.TryGetValue(__instance, out DepotGridView existing) && existing.root != null) {
-                            existing.root.SetActive(false);
+                        if(views.TryGetValue(__instance, out DepotGridView existing)) {
+                            if(existing.root != null) existing.root.SetActive(false);
+                            restoreCheckbox(__instance, existing);
                         }
                         return;
                     }
@@ -134,23 +147,45 @@ namespace DspUniversalDepot {
         private static void applyDepotLayout(UIStationWindow w, DepotGridView view) {
             RectTransform root = view.root.GetComponent<RectTransform>();
             float gridHeight = root.sizeDelta.y;
-            w.windowTrans.sizeDelta = new Vector2(w.windowTrans.sizeDelta.x, windowChrome + gridHeight);
-            showOverflowToggle(w);
+            // Override the vanilla 76*N height with a snug header + grid + footer.
+            w.windowTrans.sizeDelta = new Vector2(w.windowTrans.sizeDelta.x, -gridTop + gridHeight + windowFooter);
+            moveOverflowToTop(w);
         }
 
         /// <summary>
-        /// Reveal + relabel the vanilla orbital-collector checkbox as our "Discard overflow"
-        /// toggle. Its button already flips <c>StationComponent.includeOrbitCollector</c> (the
-        /// field the belt patch repurposes as the overflow flag) and its check image is
-        /// re-synced every frame by the window's own <c>_OnUpdate</c>, so we only un-hide the
-        /// group (hidden for planetary stations) and relabel it. Idempotent across repeated
-        /// <c>OnStationIdChange</c> calls.
+        /// Move the vanilla orbital-collector checkbox to the window top and relabel it as our
+        /// "Discard overflow" toggle. Its button already flips
+        /// <c>StationComponent.includeOrbitCollector</c> (the field the belt patch repurposes as
+        /// the overflow flag) and its check image is re-synced every frame by the window's own
+        /// <c>_OnUpdate</c>, so we only reparent + reposition + relabel. Reparenting is needed
+        /// because the checkbox lives in the bottom config panel; <see cref="restoreCheckbox"/>
+        /// puts it back when a non-depot station reuses the same window.
         /// </summary>
-        private static void showOverflowToggle(UIStationWindow w) {
+        private static void moveOverflowToTop(UIStationWindow w) {
             RectTransform group = w.includeOrbitCollectorGroup;
             if(group == null) return;
+            if(group.parent != w.windowTrans) group.SetParent(w.windowTrans, false);
+            group.anchorMin = new Vector2(0f, 1f);
+            group.anchorMax = new Vector2(0f, 1f);
+            group.pivot = new Vector2(0f, 1f);
+            group.anchoredPosition = new Vector2(checkboxLeft, checkboxTop);
             group.gameObject.SetActive(true);
-            group.anchoredPosition = new Vector2(group.anchoredPosition.x, -116f);
+            relabelOverflow(group);
+        }
+
+        /// <summary>Restore the checkbox's original parent/anchors so vanilla stations look normal.</summary>
+        private static void restoreCheckbox(UIStationWindow w, DepotGridView view) {
+            if(!view.checkboxCaptured) return;
+            RectTransform group = w.includeOrbitCollectorGroup;
+            if(group == null) return;
+            if(view.cbParent != null && group.parent != view.cbParent) group.SetParent(view.cbParent, false);
+            group.anchorMin = view.cbAnchorMin;
+            group.anchorMax = view.cbAnchorMax;
+            group.pivot = view.cbPivot;
+            group.anchoredPosition = view.cbPos;
+        }
+
+        private static void relabelOverflow(RectTransform group) {
             foreach(Localizer loc in group.GetComponentsInChildren<Localizer>(true)) {
                 loc.stringKey = "";
                 loc.enabled = false;
@@ -221,9 +256,8 @@ namespace DspUniversalDepot {
             int visibleRows = Mathf.Max(1, UniversalDepotPlugin.GridVisibleRows.Value);
             int slots = Mathf.Max(1, UniversalDepotPlugin.SlotCount.Value);
 
-            float width = parent.rect.width > 0f ? parent.rect.width : 360f;
-            float gridWidth = width - gridLeft * 2f;
-            float cell = (gridWidth - gridSpacing * (columns - 1)) / columns;
+            float cell = cellSize;
+            float gridWidth = columns * cell + (columns - 1) * gridSpacing;
             float viewportHeight = visibleRows * cell + (visibleRows - 1) * gridSpacing;
 
             GameObject root = newRect("DepotGrid", parent);
@@ -276,8 +310,22 @@ namespace DspUniversalDepot {
                 cells[i] = buildCell(cRt, cell, font, tipTemplate);
             }
 
+            DepotGridView view = new DepotGridView { root = root, cells = cells };
+
+            // Capture the overflow checkbox's pristine transform now (before applyDepotLayout moves
+            // it) so non-depot stations sharing this window can be restored exactly.
+            RectTransform cb = w.includeOrbitCollectorGroup;
+            if(cb != null) {
+                view.checkboxCaptured = true;
+                view.cbParent = cb.parent;
+                view.cbAnchorMin = cb.anchorMin;
+                view.cbAnchorMax = cb.anchorMax;
+                view.cbPivot = cb.pivot;
+                view.cbPos = cb.anchoredPosition;
+            }
+
             UniversalDepotPlugin.Log.LogInfo($"[Depot] built grid UI: {slots} cells, {columns} cols, {visibleRows} visible rows, cell={cell:0}px");
-            return new DepotGridView { root = root, cells = cells };
+            return view;
         }
 
         private static DepotCell buildCell(RectTransform parent, float size, Font font, UIButton tipTemplate) {

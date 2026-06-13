@@ -60,12 +60,12 @@ namespace DspUniversalDepot {
         // Layout constants. Tiles are a FIXED square size (deriving it from the window width made
         // the cells — and therefore the whole window — balloon when the width read large at build
         // time). Column count / visible rows come from config; the grid width follows from them.
-        private const float cellSize = 46f;
-        private const float gridTop = -86f;      // grid top edge, just below the moved checkbox
+        private const float cellSize = 38f;
+        private const float gridTop = -70f;      // grid top edge, just below the moved checkbox
         private const float gridLeft = 20f;
         private const float gridSpacing = 4f;
-        private const float windowFooter = 200f; // room kept below the grid for the vanilla config panel
-        private const float checkboxTop = -52f;  // overflow checkbox: just under the title bar
+        private const float windowFooter = 180f; // room kept below the grid for the vanilla config panel
+        private const float checkboxTop = -40f;  // overflow checkbox: just under the title bar
         private const float checkboxLeft = 24f;
 
         private static Sprite White() {
@@ -94,7 +94,9 @@ namespace DspUniversalDepot {
         /// <summary>
         /// Postfix on the per-station-type layout pass. Runs on every station switch, so it
         /// toggles both ways: builds/shows the grid + overflow toggle for depots and overrides
-        /// the broken window height; restores the vanilla rows for everything else.
+        /// the broken window height; hides the grid for everything else and leaves vanilla's
+        /// own per-slot row visibility (vanilla only shows rows 0..storage.Length-1 — touching
+        /// rows beyond that for non-depots used to expose an empty 6th row on the ILS, etc.).
         /// </summary>
         [HarmonyPatch(typeof(UIStationWindow), "OnStationIdChange")]
         public static class LayoutPatch {
@@ -104,19 +106,19 @@ namespace DspUniversalDepot {
                     StationComponent sc = resolveStation(__instance);
                     bool depot = IsDepot(sc);
 
-                    UIStationStorage[] rows = storageUIsRef(__instance);
-                    if(rows != null) {
-                        foreach(UIStationStorage row in rows) {
-                            if(row != null) row.gameObject.SetActive(!depot);
-                        }
-                    }
-
                     if(!depot) {
                         if(views.TryGetValue(__instance, out DepotGridView existing)) {
                             if(existing.root != null) existing.root.SetActive(false);
                             restoreCheckbox(__instance, existing);
                         }
                         return;
+                    }
+
+                    UIStationStorage[] rows = storageUIsRef(__instance);
+                    if(rows != null) {
+                        foreach(UIStationStorage row in rows) {
+                            if(row != null) row.gameObject.SetActive(false);
+                        }
                     }
 
                     DepotGridView view = ensureGrid(__instance);
@@ -137,7 +139,13 @@ namespace DspUniversalDepot {
                 if(!views.TryGetValue(__instance, out DepotGridView view) || view.root == null || !view.root.activeSelf) return;
                 try {
                     StationComponent sc = resolveStation(__instance);
-                    if(IsDepot(sc)) refresh(sc, view);
+                    if(!IsDepot(sc)) return;
+                    refresh(sc, view);
+                    // Vanilla _OnUpdate calls RefreshTrans() which re-derives the window height
+                    // from storage.Length — for a 60-slot depot that would balloon the window to
+                    // ~4900px every frame and bury our compact layout. Re-apply the compact
+                    // geometry after vanilla has run.
+                    applyDepotLayout(__instance, view);
                 } catch(Exception ex) {
                     UniversalDepotPlugin.Log.LogWarning($"[Depot] grid refresh failed: {ex.Message}");
                 }
@@ -148,7 +156,23 @@ namespace DspUniversalDepot {
             RectTransform root = view.root.GetComponent<RectTransform>();
             float gridHeight = root.sizeDelta.y;
             // Override the vanilla 76*N height with a snug header + grid + footer.
-            w.windowTrans.sizeDelta = new Vector2(w.windowTrans.sizeDelta.x, -gridTop + gridHeight + windowFooter);
+            float totalHeight = -gridTop + gridHeight + windowFooter;
+            w.windowTrans.sizeDelta = new Vector2(w.windowTrans.sizeDelta.x, totalHeight);
+
+            // Vanilla pins panelDown to y = 76*N + 130 (off-screen for an N-slot depot) and
+            // y = 106 for a non-stellar station from the bottom of the window. Position the
+            // panel just below the grid instead so the config sliders stay visible without
+            // overlapping the grid cells. panelDown's anchor is at the window's bottom edge
+            // (per the station-window prefab) and its pivot is its center, so anchoredPosition.y
+            // is the distance from the window's bottom to the panel's center.
+            if(w.panelDownTrans != null) {
+                float panelTopFromWindowTop = -gridTop + gridHeight + 12f;
+                float panelHeight = w.panelDownTrans.rect.height;
+                float panelPivotOffset = panelHeight * (1f - w.panelDownTrans.pivot.y); // pivot→top
+                float anchoredY = totalHeight - (panelTopFromWindowTop + panelPivotOffset);
+                w.panelDownTrans.anchoredPosition = new Vector2(w.panelDownTrans.anchoredPosition.x, anchoredY);
+            }
+
             moveOverflowToTop(w);
         }
 
@@ -278,7 +302,9 @@ namespace DspUniversalDepot {
             RectTransform vpRt = viewport.GetComponent<RectTransform>();
             stretch(vpRt);
             Image vpImg = viewport.AddComponent<Image>();
-            vpImg.color = new Color(0f, 0f, 0f, 0.30f);
+            // Lighter background so the grid area is visually distinct from the station-window body
+            // — without it, an empty depot looks like the window is missing its lower half.
+            vpImg.color = new Color(0.05f, 0.07f, 0.10f, 0.65f);
             viewport.AddComponent<RectMask2D>();
             scroll.viewport = vpRt;
 
@@ -291,6 +317,7 @@ namespace DspUniversalDepot {
             GridLayoutGroup grid = content.AddComponent<GridLayoutGroup>();
             grid.cellSize = new Vector2(cell, cell);
             grid.spacing = new Vector2(gridSpacing, gridSpacing);
+            grid.padding = new RectOffset(0, 0, 16, 0); // top padding so cells don't sit under the "Storage" label
             grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
             grid.constraintCount = columns;
             grid.childAlignment = TextAnchor.UpperLeft;
@@ -302,6 +329,25 @@ namespace DspUniversalDepot {
             // (corner / offset / delay / level) so the tooltip matches the rest of the game.
             Font font = w.titleText != null ? w.titleText.font : null;
             UIButton tipTemplate = null;
+
+            // "Storage" label along the viewport's top edge so the user can tell this is a slot
+            // grid, not part of the empty window. Sits inside the viewport so the RectMask clips it.
+            GameObject labelGo = newRect("StorageLabel", vpRt);
+            RectTransform labelRt = labelGo.GetComponent<RectTransform>();
+            labelRt.anchorMin = new Vector2(0f, 1f);
+            labelRt.anchorMax = new Vector2(0f, 1f);
+            labelRt.pivot = new Vector2(0f, 1f);
+            labelRt.anchoredPosition = new Vector2(6f, -2f);
+            labelRt.sizeDelta = new Vector2(gridWidth - 12f, 14f);
+            Text label = labelGo.AddComponent<Text>();
+            label.font = font;
+            label.fontSize = 11;
+            label.alignment = TextAnchor.UpperLeft;
+            label.color = new Color(1f, 1f, 1f, 0.55f);
+            label.raycastTarget = false;
+            label.text = "Storage (scroll for more)";
+            label.horizontalOverflow = HorizontalWrapMode.Overflow;
+            label.verticalOverflow = VerticalWrapMode.Truncate;
             UIStationStorage[] rows = storageUIsRef(w);
             if(rows != null && rows.Length > 0 && rows[0] != null) tipTemplate = rows[0].itemButton;
 
@@ -363,11 +409,11 @@ namespace DspUniversalDepot {
             txtRt.anchorMin = new Vector2(0f, 0f);
             txtRt.anchorMax = new Vector2(1f, 0f);
             txtRt.pivot = new Vector2(0.5f, 0f);
-            txtRt.sizeDelta = new Vector2(0f, size * 0.34f);
+            txtRt.sizeDelta = new Vector2(0f, size * 0.30f);
             txtRt.anchoredPosition = Vector2.zero;
             Text percent = txtGo.AddComponent<Text>();
             percent.font = font;
-            percent.fontSize = Mathf.Max(10, (int)(size * 0.26f));
+            percent.fontSize = Mathf.Max(9, (int)(size * 0.24f));
             percent.alignment = TextAnchor.LowerCenter;
             percent.color = Color.white;
             percent.raycastTarget = false;

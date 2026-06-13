@@ -36,7 +36,7 @@ namespace DspUniversalDepot {
     public class UniversalDepotPlugin : BaseUnityPlugin {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.6.0";
+        public const string VERSION = "0.6.1";
 
         // Nebula's API plugin GUID — kept as a literal so the no-Nebula path never touches a Nebula type.
         public const string NEBULA_API_GUID = "dsp.nebula-multiplayer-api";
@@ -80,10 +80,10 @@ namespace DspUniversalDepot {
                 "0 = auto: keep the cloned station's tab/page but move it to an empty row so it\n" +
                 "no longer hides behind the Planetary Logistics Station's cell. Set explicitly\n" +
                 "to relocate it within the replicator.");
-            GridColumns = Config.Bind("UI", "GridColumns", 10,
+            GridColumns = Config.Bind("UI", "GridColumns", 8,
                 "Number of item tiles per row in the depot's compact storage grid.");
-            GridVisibleRows = Config.Bind("UI", "GridVisibleRows", 4,
-                "Number of tile rows visible at once before the grid scrolls.");
+            GridVisibleRows = Config.Bind("UI", "GridVisibleRows", 2,
+                "Number of tile rows visible at once before the grid scrolls. Lower = shorter window.");
 
             // LDBTool fires PreAddDataAction once the vanilla protos are loaded
             // but before it merges custom protos — the right moment to clone.

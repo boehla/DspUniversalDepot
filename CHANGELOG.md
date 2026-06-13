@@ -5,6 +5,39 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-06-13
+
+### Fixed
+
+- **Interstellar Logistics Station now shows only its 5 rows.** The depot's
+  `LayoutPatch` was unconditionally activating all 6 entries of the vanilla
+  `storageUIs[]` array for every station, exposing a phantom 6th row on
+  non-depot stations (the ILS has 5 storage slots, the 6th `storageUIs`
+  row has no underlying slot, and the postfix was making it visible and
+  clickable). The postfix now only hides the rows for depots and leaves
+  vanilla's per-slot visibility untouched for everything else.
+- **Depot station window no longer balloons to ~4900px every frame.**
+  `_OnUpdate` → `RefreshTrans` was unconditionally recomputing the window
+  height as `280 + 76 * storage.Length + 36` — for a 60-slot depot that
+  recomputes to ~4900px **after** the depot's compact layout was applied,
+  so the depot window was a massive full-screen sheet. The `_OnUpdate`
+  postfix now re-applies the compact geometry after vanilla's pass.
+- **Depot station window is more compact by default.** Default grid is
+  8 columns × 2 visible rows (down from 10 × 4), tiles are 38px (down
+  from 46), and the config panel is now positioned just below the grid
+  using the actual panel height instead of a fixed offset that was
+  overlapping the grid. Window height with defaults: ~330px (down from
+  ~482px). Raise `GridVisibleRows` if you want more visible slots.
+- **Grid is now visible as a distinct area.** Added a lighter viewport
+  background and a small "Storage (scroll for more)" label so the slot
+  grid is clearly demarcated from the rest of the station window body
+  — without this, an empty depot looked like the window was missing its
+  lower half and the panel was appearing to overlap the grid.
+- **Config panel no longer overlaps the grid.** The depot layout now
+  computes `panelDown.anchoredPosition.y` from the grid's bottom edge
+  and the actual panel height, so the drone/charge sliders sit cleanly
+  under the grid regardless of how many rows are visible.
+
 ## [0.6.0] - 2026-06-13
 
 ### Nebula multiplayer support

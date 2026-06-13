@@ -48,6 +48,8 @@ namespace DspUniversalDepot {
         public static ConfigEntry<int> DepotItemId;
         public static ConfigEntry<int> DepotRecipeId;
         public static ConfigEntry<int> BuildBarIndex;
+        public static ConfigEntry<int> GridColumns;
+        public static ConfigEntry<int> GridVisibleRows;
 
         private void Awake() {
             Log = Logger;
@@ -68,6 +70,10 @@ namespace DspUniversalDepot {
                 "Recipe ID for the Universal Depot. Change only if it conflicts with another mod.");
             BuildBarIndex = Config.Bind("Advanced", "BuildBarIndex", 12,
                 "Column (1-12) inside the build category where the depot icon appears.");
+            GridColumns = Config.Bind("UI", "GridColumns", 10,
+                "Number of item tiles per row in the depot's compact storage grid.");
+            GridVisibleRows = Config.Bind("UI", "GridVisibleRows", 4,
+                "Number of tile rows visible at once before the grid scrolls.");
 
             // LDBTool fires PreAddDataAction once the vanilla protos are loaded
             // but before it merges custom protos — the right moment to clone.
@@ -356,46 +362,7 @@ namespace DspUniversalDepot {
         }
     }
 
-    /// <summary>
-    /// Adds a "Discard overflow" checkbox to the station window for our depots. Rather than
-    /// build a new Unity control, we reuse the vanilla orbital-collector checkbox: its button
-    /// already toggles <c>includeOrbitCollector</c> — the very field we repurpose as the
-    /// overflow flag — and its check image is re-synced every frame by the window's own
-    /// <c>_OnUpdate</c>. So we only reveal the group (normally hidden for planetary stations)
-    /// and relabel it. The toggle persists through the native save with the flag.
-    /// </summary>
-    [HarmonyPatch(typeof(UIStationWindow), "OnStationIdChange")]
-    public static class StationOverflowUIPatch {
-        [HarmonyPostfix]
-        public static void Postfix(UIStationWindow __instance) {
-            try {
-                int stationId = __instance.stationId;
-                PlanetTransport transport = __instance.transport;
-                if(stationId == 0 || transport == null) return;
-                StationComponent sc = transport.stationPool[stationId];
-                if(sc == null || sc.id != stationId || sc.storage == null) return;
-                if(sc.storage.Length <= 6 || sc.isCollector || sc.isStellar) return;   // not a depot
-
-                RectTransform group = __instance.includeOrbitCollectorGroup;
-                if(group == null) return;
-
-                // The planetary layout branch hid the group and set an absolute window height,
-                // so re-show + nudge are idempotent across repeated OnStationIdChange calls.
-                group.gameObject.SetActive(true);
-                group.anchoredPosition = new Vector2(group.anchoredPosition.x, -116f);
-                __instance.windowTrans.sizeDelta += new Vector2(0f, 24f);
-
-                // Stop the localizers from overwriting our label, then relabel.
-                foreach(Localizer loc in group.GetComponentsInChildren<Localizer>(true)) {
-                    loc.stringKey = "";
-                    loc.enabled = false;
-                }
-                foreach(Text t in group.GetComponentsInChildren<Text>(true)) {
-                    t.text = "Discard overflow";
-                }
-            } catch(Exception ex) {
-                UniversalDepotPlugin.Log.LogWarning($"[Depot] overflow UI patch failed: {ex.Message}");
-            }
-        }
-    }
+    // The "Discard overflow" checkbox is now revealed/relabelled by DepotStationUI's
+    // OnStationIdChange postfix (src/DepotStationUI.cs), merged with the grid layout so the
+    // two passes no longer fight over the window height.
 }

@@ -5,6 +5,20 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-06-13
+
+### Fixed
+
+- **Opening a non-depot station (ILS, PLS, etc.) directly after closing a depot
+  window now shows its items.** The depot's `LayoutPatch` postfix on
+  `UIStationWindow.OnStationIdChange` hides all 6 vanilla `storageUIs` rows when
+  the window is on a depot, but the inverse branch only reactivated the grid
+  and overflow checkbox — the rows stayed disabled, so the next station opened
+  on the same window rendered an empty body. The postfix now re-enables the
+  first `min(storageUIs.Length, sc.storage.Length)` rows on a non-depot switch,
+  which is exactly the set the station has slots for (so an ILS still shows its
+  5 rows and never a phantom 6th).
+
 ## [0.6.1] - 2026-06-13
 
 ### Fixed

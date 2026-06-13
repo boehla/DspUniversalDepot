@@ -111,6 +111,20 @@ namespace DspUniversalDepot {
                             if(existing.root != null) existing.root.SetActive(false);
                             restoreCheckbox(__instance, existing);
                         }
+                        // Undo the depot branch's SetActive(false) on the vanilla storage rows so
+                        // the next station can actually show its items. Only rows 0..storage.Length-1
+                        // — the depot branch hid all 6 unconditionally, but an ILS has fewer storage
+                        // slots and reactivating the unused rows would leave an empty trailing slot
+                        // visible (this was the previous regression that prompted the comment above).
+                        if(sc != null) {
+                            UIStationStorage[] vanillaRows = storageUIsRef(__instance);
+                            if(vanillaRows != null) {
+                                int n = Math.Min(vanillaRows.Length, sc.storage.Length);
+                                for(int i = 0; i < n; i++) {
+                                    if(vanillaRows[i] != null) vanillaRows[i].gameObject.SetActive(true);
+                                }
+                            }
+                        }
                         return;
                     }
 

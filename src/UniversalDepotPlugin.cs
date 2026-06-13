@@ -36,7 +36,7 @@ namespace DspUniversalDepot {
     public class UniversalDepotPlugin : BaseUnityPlugin {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.6.1";
+        public const string VERSION = "0.6.2";
 
         // Nebula's API plugin GUID — kept as a literal so the no-Nebula path never touches a Nebula type.
         public const string NEBULA_API_GUID = "dsp.nebula-multiplayer-api";

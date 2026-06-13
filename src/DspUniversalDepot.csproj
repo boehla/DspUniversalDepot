@@ -9,7 +9,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>DspUniversalDepot</AssemblyName>
     <RootNamespace>DspUniversalDepot</RootNamespace>
-    <Version>0.6.1</Version>
+    <Version>0.6.2</Version>
     <Description>A planetary supply station cloned from the vanilla logistics station: belt-fed items auto-register as supply and drones distribute them across the planet. Holds many item kinds; saves natively.</Description>
     <Authors>boehla</Authors>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>

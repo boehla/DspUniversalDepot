@@ -18,7 +18,7 @@ if [ ! -d "$MANAGED" ]; then
   exit 1
 fi
 echo "==> Copying game DLLs from $MANAGED"
-for dll in Assembly-CSharp.dll UnityEngine.dll UnityEngine.CoreModule.dll; do
+for dll in Assembly-CSharp.dll UnityEngine.dll UnityEngine.CoreModule.dll UnityEngine.UI.dll; do
   cp "$MANAGED/$dll" "$LIBS_DIR/"
   echo "  ✓ $dll"
 done

@@ -1,8 +1,8 @@
 {
   "name": "DspUniversalDepot",
-  "version_number": "0.4.0",
+  "version_number": "0.5.0",
   "website_url": "https://github.com/boehla/DspUniversalDepot",
-  "description": "A planetary depot building with a large, configurable slot count. Cloned from the vanilla storage so belts, sorters, the storage UI and native save/load all keep working.",
+  "description": "A planetary supply station that holds many item kinds. Feed it by belt and drones deliver the items to any station on the planet that demands them. Cloned from the vanilla logistics station; saves natively.",
   "icon": "icon.png",
   "dependencies": [
     "BepInEx-BepInExPack-5.4.2100",

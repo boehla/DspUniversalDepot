@@ -9,8 +9,8 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>DspUniversalDepot</AssemblyName>
     <RootNamespace>DspUniversalDepot</RootNamespace>
-    <Version>0.4.0</Version>
-    <Description>A planetary depot building with a configurable, very large slot count. Clones the vanilla storage so it stays fully compatible with belts, sorters, the storage UI and native save/load.</Description>
+    <Version>0.5.0</Version>
+    <Description>A planetary supply station cloned from the vanilla logistics station: belt-fed items auto-register as supply and drones distribute them across the planet. Holds many item kinds; saves natively.</Description>
     <Authors>boehla</Authors>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
@@ -28,6 +28,7 @@
     <Reference Include="Assembly-CSharp"><HintPath>../libs/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine"><HintPath>../libs/UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>../libs/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>../libs/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="BepInEx"><HintPath>../libs/BepInEx.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="0Harmony"><HintPath>../libs/0Harmony.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="LDBTool"><HintPath>../libs/LDBTool.dll</HintPath><Private>false</Private></Reference>

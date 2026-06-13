@@ -5,6 +5,50 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-13
+
+### The depot is now a planetary supply station (drone logistics)
+
+Reworked from a passive storage box into a **planetary supply station** that feeds
+the planet's drone-logistics network. Items put into the depot by belt are
+auto-registered into a slot as **Supply**, and planetary drones deliver them to any
+station demanding that item. The depot only provides — it never demands.
+
+Why the change: only `StationComponent` participates in drone logistics. A storage
+box, no matter how many slots, can never request or supply via drones.
+
+### Changed
+- **Clones the Planetary Logistics Station (item 2103)** instead of the storage box,
+  so the building is a real station with drones and belt ports. (`SourceStationItemId`)
+- `SlotCount` now means the number of distinct **item kinds** the depot can supply
+  (default 60), not raw storage cells.
+- New `SupplyMaxPerSlot` config (default 10000) — per-kind capacity / belt back-pressure.
+
+### Added
+- `StationInitPatch` — grows a freshly built depot's slot array to `SlotCount` after
+  `StationComponent.Init` (the PLS prefab is shared, so we reallocate per-entity).
+- `StationCapacityPatches` — loop replacements for the six vanilla helpers hard-wired
+  to slots 0–5 (`HasLocalSupply/Demand`, `HasRemoteSupply/Demand`, `AddItem`) so drones
+  see supply/demand across all N slots. Behaviour-identical for vanilla ≤6-slot stations.
+- `StationBeltInputPatch` — belt auto-register: reads each input belt directly and claims
+  a Supply slot for any item, bypassing the 6-entry `needs` cap.
+- **Per-building "Discard overflow" toggle** in the station window. When enabled, items that
+  arrive by belt while the depot is full (slot at `SupplyMaxPerSlot`, or all slots taken) are
+  discarded instead of backing up the belt. Off by default (back-pressure). Implemented by
+  reusing the vanilla orbital-collector checkbox (`StationOverflowUIPatch`) and parking the
+  flag in the natively-saved `includeOrbitCollector` field, so the setting persists per
+  building with no custom serialization.
+
+### Known limitations
+- The vanilla station window only shows the **first 6 slots** (drones/energy/those 6 are
+  editable normally); slots 7+ are managed automatically by belt input. A scrollable
+  N-slot UI is planned.
+- Simultaneous belt inputs are bounded by the PLS model's physical belt ports.
+- Native save/load already handles N slots — no custom serialization. Removing the mod
+  from a save that contains depots will drop those buildings (standard modded-proto caveat).
+- Multiplayer / Nebula untested; hot-path method replacement may break on DSP updates.
+- **Not yet verified in a running game session** (builds clean against real DSP DLLs).
+
 ## [0.4.0] - 2026-06-12
 
 ### Complete rewrite — the mod now actually works in DSP

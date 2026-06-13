@@ -1,29 +1,43 @@
 # DspUniversalDepot
 
-A Dyson Sphere Program mod that adds a **Universal Planetary Depot** — a storage
-building with a large, configurable slot count.
+A Dyson Sphere Program mod that adds a **Universal Planetary Depot** — a
+planetary **supply station** that feeds the planet's drone-logistics network and
+can hold many item kinds at once.
 
 ![Icon](icon.png)
 
 ## How it works
 
-The depot is **cloned from the vanilla storage box** at load time using
-[LDBTool](https://thunderstore.io/c/dyson-sphere-program/p/xiaoye97/LDBTool/).
-Because it stays a real DSP storage entity, it keeps full compatibility with:
+The depot is **cloned from the vanilla Planetary Logistics Station** (item 2103)
+at load time using
+[LDBTool](https://thunderstore.io/c/dyson-sphere-program/p/xiaoye97/LDBTool/), so
+it is a real station with drones and belt ports.
 
-- belts and sorters,
-- the normal storage window UI,
-- and the **native save format** — contents persist with your save, no extra
-  save mod required.
+- **Feed it by belt** → each incoming item auto-registers into a free slot as
+  **Supply**. No per-slot configuration needed.
+- **Planetary drones** then deliver those items to any station on the planet that
+  demands them. The depot only ever *provides* — it never demands.
+- **Discard-overflow toggle** (per building, in the station window): when on, items
+  fed in while the depot is full are discarded instead of backing up the belt.
+  Off by default.
+- **Native save format** — contents persist with your save, no extra save mod.
 
-The only thing the mod changes is the slot count: a small Harmony patch on
-`FactoryStorage.NewStorageComponent` forces our building's storage to
-`SlotCount` slots (default 500) instead of the vanilla 30–60.
+To get past the engine's hard-coded ~5-item-kind limit, the mod:
 
-> **v0.4.0 was a full rewrite.** Earlier versions (≤ 0.3.0) targeted a BepInEx 6
-> / IL2CPP / .NET 6 setup and a custom dictionary-based storage that **never
-> loaded into the game** — DSP is a Mono game, and storage is a fixed-grid
-> `StorageComponent`. See the changelog for details.
+1. grows the depot's slot array to `SlotCount` after the station initialises
+   (`StationComponent.Init` postfix), and
+2. replaces the six vanilla logistics helpers that are unrolled to slots 0–5
+   (`HasLocalSupply`, `AddItem`, …) with loop versions, and
+3. reads input belts directly so any item registers into a Supply slot, bypassing
+   the 6-entry `needs` cap.
+
+> **Note:** the vanilla station window only shows the **first 6 slots** (drones,
+> energy and those 6 are editable as usual); slots 7+ are filled automatically by
+> belt input. A scrollable N-slot UI is planned.
+
+> **v0.5.0** reworked the depot from a storage box into a supply station — a
+> storage box can never participate in drone logistics. **v0.4.0** was the Mono
+> rewrite that first made the mod load at all. See the changelog for details.
 
 ## Recipe
 
@@ -54,18 +68,20 @@ See [docs/BUILDING.md](docs/BUILDING.md).
 
 ```ini
 [General]
-## Number of storage slots in the Universal Depot (vanilla storage has 30-60).
-SlotCount = 500
+## Number of distinct item kinds the depot can hold and supply.
+SlotCount = 60
+## Per-kind capacity (belt input stops when a slot is full → belt backs up).
+SupplyMaxPerSlot = 10000
 
 [Advanced]
-## Vanilla storage item that is cloned (2101 = Storage MK.I, 2102 = Storage MK.II).
-SourceStorageItemId = 2102
+## Vanilla station item that is cloned (2103 = Planetary Logistics Station).
+SourceStationItemId = 2103
 
 ## Item / Recipe IDs — change only on conflict with another mod.
 DepotItemId = 7777
 DepotRecipeId = 7777
 
-## Column (1-12) inside the storage build category where the icon appears.
+## Column (1-12) inside the build category where the icon appears.
 BuildBarIndex = 12
 ```
 
@@ -74,7 +90,8 @@ BuildBarIndex = 12
 - ✅ BepInEx 5.4.x (Mono)
 - ✅ LDBTool 3.x (required)
 - ✅ Native save/load (no DSPModSave needed)
-- ⚠️ Other storage / building mods — should work; test together
+- ⚠️ Other logistics-station mods — both patch `StationComponent`; test together
+- ⚠️ Multiplayer / Nebula — untested
 
 ## License
 

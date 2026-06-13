@@ -3,16 +3,28 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using System;
+using UnityEngine;
+using UnityEngine.UI;
 using xiaoye97;
 
 namespace DspUniversalDepot {
     /// <summary>
-    /// Universal Planetary Depot — a storage building cloned from the vanilla
-    /// storage box, but with a large, configurable slot count.
+    /// Universal Planetary Depot — a planetary <b>supply</b> station cloned from the
+    /// vanilla Planetary Logistics Station (PLS), but with a large, configurable
+    /// number of item slots.
     ///
-    /// Because it IS a real DSP storage entity it keeps full compatibility with
-    /// belts, sorters, the storage window UI and the native save format
-    /// (FactoryStorage.Export/Import) — no custom serialization needed.
+    /// Behaviour: items fed into the building by belt are <b>auto-registered</b> into a
+    /// free slot as <see cref="ELogisticStorage.Supply"/>. From there the planet's
+    /// logistics drones deliver them to any station that demands that item. The depot
+    /// only ever <i>provides</i> (Supply) — it never demands.
+    ///
+    /// Why a station and not a storage box: only <c>StationComponent</c> participates in
+    /// the drone logistics network. The vanilla station logic is hard-wired to ~5 item
+    /// kinds in a handful of unrolled helpers (<c>HasLocalSupply</c>, <c>AddItem</c>, …);
+    /// the heavy tick/save paths already loop over <c>storage.Length</c>. We lift the cap
+    /// by (a) reallocating the slot array to N in an <c>Init</c> postfix and (b) replacing
+    /// those unrolled helpers with behaviour-identical loop versions. Native save/load
+    /// already handles N slots, so contents persist without any custom serialization.
     /// </summary>
     [BepInPlugin(GUID, NAME, VERSION)]
     [BepInProcess("DSPGAME.exe")]
@@ -20,11 +32,12 @@ namespace DspUniversalDepot {
     public class UniversalDepotPlugin : BaseUnityPlugin {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.4.0";
+        public const string VERSION = "0.5.0";
 
         public static ManualLogSource Log;
 
         public static ConfigEntry<int> SlotCount;
+        public static ConfigEntry<int> SupplyMaxPerSlot;
         public static ConfigEntry<int> SourceItemId;
         public static ConfigEntry<int> DepotItemId;
         public static ConfigEntry<int> DepotRecipeId;
@@ -33,18 +46,22 @@ namespace DspUniversalDepot {
         private void Awake() {
             Log = Logger;
 
-            SlotCount = Config.Bind("General", "SlotCount", 500,
-                "Number of storage slots in the Universal Depot. Vanilla storage has 30-60.\n" +
-                "Higher values give more capacity; very large values make the storage window tall.");
-            SourceItemId = Config.Bind("Advanced", "SourceStorageItemId", 2102,
-                "Vanilla storage item that is cloned (model, icon, collider).\n" +
-                "2101 = Storage MK.I, 2102 = Storage MK.II.");
+            SlotCount = Config.Bind("General", "SlotCount", 60,
+                "Number of distinct item slots (kinds) the depot can hold and supply.\n" +
+                "Each slot is auto-assigned when an item first arrives by belt. The vanilla\n" +
+                "station window only shows the first 6 slots; the rest are managed automatically.");
+            SupplyMaxPerSlot = Config.Bind("General", "SupplyMaxPerSlot", 10000,
+                "Per-slot capacity (max stored count of one item kind). Belt input stops once a\n" +
+                "slot is full, so the belt backs up — that is the intended back-pressure.");
+            SourceItemId = Config.Bind("Advanced", "SourceStationItemId", 2103,
+                "Vanilla station item that is cloned (model, prefab, drones, belt ports).\n" +
+                "2103 = Planetary Logistics Station (planetary, drones only).");
             DepotItemId = Config.Bind("Advanced", "DepotItemId", 7777,
                 "Item ID for the Universal Depot. Change only if it conflicts with another mod.");
             DepotRecipeId = Config.Bind("Advanced", "DepotRecipeId", 7777,
                 "Recipe ID for the Universal Depot. Change only if it conflicts with another mod.");
             BuildBarIndex = Config.Bind("Advanced", "BuildBarIndex", 12,
-                "Column (1-12) inside the storage build category where the depot icon appears.");
+                "Column (1-12) inside the build category where the depot icon appears.");
 
             // LDBTool fires PreAddDataAction once the vanilla protos are loaded
             // but before it merges custom protos — the right moment to clone.
@@ -57,17 +74,17 @@ namespace DspUniversalDepot {
         }
 
         /// <summary>
-        /// Clone the vanilla storage ItemProto, give it a new identity + recipe,
-        /// and queue it with LDBTool. Runs inside LDBTool.PreAddDataAction.
+        /// Clone the vanilla PLS ItemProto, give it a new identity + recipe, and queue it
+        /// with LDBTool. Keeping the source ModelIndex means our building reuses the PLS
+        /// prefab — so it is a real station with drones and belt ports out of the box.
         /// </summary>
         private void registerDepot() {
             try {
                 ItemProto src = LDB.items.Select(SourceItemId.Value);
-                if(src == null) src = LDB.items.Select(2102);
-                if(src == null) src = LDB.items.Select(2101);
+                if(src == null) src = LDB.items.Select(2103);
                 if(src == null) {
-                    Log.LogError("[Depot] No vanilla storage proto found to clone (tried " +
-                        $"{SourceItemId.Value}, 2102, 2101). Depot NOT registered.");
+                    Log.LogError("[Depot] No vanilla logistics-station proto found to clone (tried " +
+                        $"{SourceItemId.Value}, 2103). Depot NOT registered.");
                     return;
                 }
 
@@ -82,9 +99,10 @@ namespace DspUniversalDepot {
                 item.ID = DepotItemId.Value;
                 item.SID = "";
                 item.Name = "Universal Planetary Depot";
-                item.Description = "A planetary depot cloned from the storage box, " +
-                    "with a greatly increased slot count. Works with belts, sorters and " +
-                    "saves natively with your game.";
+                item.Description = "A planetary supply depot cloned from the logistics station. " +
+                    "Items fed in by belt are automatically offered to the planet's logistics " +
+                    "network and delivered to demanding stations by drones. Holds many item " +
+                    "kinds and saves natively with your game.";
                 item.Type = EItemType.Logistics;
                 item.BuildIndex = category * 100 + index;
                 item.preTech = null;
@@ -100,7 +118,7 @@ namespace DspUniversalDepot {
                 LDBTool.SetBuildBar(category, index, item.ID);
 
                 Log.LogInfo($"[Depot] Registered item {item.ID} cloned from {src.ID} \"{src.Name}\" " +
-                    $"(model={src.ModelIndex}) at build bar {category},{index} with {SlotCount.Value} slots");
+                    $"(model={src.ModelIndex}) at build bar {category},{index} with {SlotCount.Value} supply slots");
             } catch(Exception ex) {
                 Log.LogError($"[Depot] registerDepot failed: {ex}");
             }
@@ -133,23 +151,234 @@ namespace DspUniversalDepot {
     }
 
     /// <summary>
-    /// Forces the depot's storage to the configured slot count. When the factory
-    /// creates the storage component for a freshly placed building it normally
-    /// uses prefabDesc.storageCol * storageRow; we override that for our protoId.
-    /// On save load the size comes from the save file, so this only affects newly
-    /// placed depots — exactly what we want.
+    /// Grows a freshly built depot's slot array to <see cref="UniversalDepotPlugin.SlotCount"/>.
+    /// The PLS prefab is shared with real stations, so we cannot change its
+    /// <c>stationMaxItemKinds</c>; instead we reallocate <c>storage</c>/<c>priorityLocks</c>
+    /// after Init, only for entities whose protoId is our depot. Loaded depots get their
+    /// slot count straight from the save (Import allocates from the stored length), so this
+    /// postfix only matters for newly placed buildings.
+    /// </summary>
+    [HarmonyPatch(typeof(StationComponent), nameof(StationComponent.Init))]
+    public static class StationInitPatch {
+        [HarmonyPostfix]
+        public static void Postfix(StationComponent __instance, int _entityId, EntityData[] _entityPool) {
+            if(_entityPool == null || _entityId <= 0 || _entityId >= _entityPool.Length) return;
+            if(_entityPool[_entityId].protoId != UniversalDepotPlugin.DepotItemId.Value) return;
+
+            int target = UniversalDepotPlugin.SlotCount.Value;
+            StationStore[] storage = __instance.storage;
+            if(storage == null || target <= storage.Length) return;
+
+            StationStore[] grown = new StationStore[target];
+            Array.Copy(storage, grown, storage.Length);
+            __instance.storage = grown;
+            __instance.priorityLocks = new StationPriorityLock[target];
+        }
+    }
+
+    /// <summary>
+    /// Replaces the six logistics helper methods that the base game hard-codes to the
+    /// first ~6 slots (unrolled <c>storage[0]</c>…<c>storage[5]</c>) with loop versions
+    /// that scan all <c>storage.Length</c> slots. The loop result is identical to the
+    /// vanilla unrolled code for stations with ≤6 slots, so applying these globally is
+    /// safe; it only changes behaviour for our larger depots — which is exactly what makes
+    /// drones see supply/demand beyond slot 5.
     /// </summary>
     [HarmonyPatch]
-    public static class StorageSizePatch {
+    public static class StationCapacityPatches {
         [HarmonyPrefix]
-        [HarmonyPatch(typeof(FactoryStorage), nameof(FactoryStorage.NewStorageComponent))]
-        public static void NewStorageComponentPrefix(FactoryStorage __instance, int entityId, ref int size) {
-            PlanetFactory factory = __instance.factory;
-            if(factory == null) return;
-            EntityData[] pool = factory.entityPool;
-            if(entityId <= 0 || pool == null || entityId >= pool.Length) return;
-            if(pool[entityId].protoId == UniversalDepotPlugin.DepotItemId.Value) {
-                size = UniversalDepotPlugin.SlotCount.Value;
+        [HarmonyPatch(typeof(StationComponent), nameof(StationComponent.HasLocalSupply))]
+        public static bool HasLocalSupply(StationComponent __instance, int itemId, int countAtLeast, ref int __result) {
+            StationStore[] s = __instance.storage;
+            for(int i = 0; i < s.Length; i++) {
+                if(s[i].itemId == itemId && s[i].localLogic == ELogisticStorage.Supply && s[i].count >= countAtLeast) {
+                    __result = i; return false;
+                }
+            }
+            __result = -1; return false;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(StationComponent), nameof(StationComponent.HasLocalDemand))]
+        public static bool HasLocalDemand(StationComponent __instance, int itemId, int countAtLeast, ref int __result) {
+            StationStore[] s = __instance.storage;
+            for(int i = 0; i < s.Length; i++) {
+                if(s[i].itemId == itemId && s[i].localLogic == ELogisticStorage.Demand && s[i].max - s[i].count >= countAtLeast) {
+                    __result = i; return false;
+                }
+            }
+            __result = -1; return false;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(StationComponent), nameof(StationComponent.HasRemoteSupply))]
+        public static bool HasRemoteSupply(StationComponent __instance, int itemId, int countAtLeast, ref int __result) {
+            StationStore[] s = __instance.storage;
+            for(int i = 0; i < s.Length; i++) {
+                if(s[i].itemId == itemId && s[i].remoteLogic == ELogisticStorage.Supply && s[i].count >= countAtLeast) {
+                    __result = i; return false;
+                }
+            }
+            __result = -1; return false;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(StationComponent), nameof(StationComponent.HasRemoteDemand))]
+        public static bool HasRemoteDemand(StationComponent __instance, int itemId, int countAtLeast, ref int __result) {
+            StationStore[] s = __instance.storage;
+            for(int i = 0; i < s.Length; i++) {
+                if(s[i].itemId == itemId && s[i].remoteLogic == ELogisticStorage.Demand && s[i].max - s[i].count >= countAtLeast) {
+                    __result = i; return false;
+                }
+            }
+            __result = -1; return false;
+        }
+
+        /// <summary>Drone delivery into the station: add to the matching slot, scanning all slots.</summary>
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(StationComponent), nameof(StationComponent.AddItem))]
+        public static bool AddItem(StationComponent __instance, int itemId, int count, int inc, ref int __result) {
+            if(itemId <= 0) { __result = 0; return false; }
+            StationStore[] s = __instance.storage;
+            lock(s) {
+                for(int i = 0; i < s.Length; i++) {
+                    if(s[i].itemId == itemId) {
+                        s[i].count += count;
+                        s[i].inc += inc;
+                        __result = count; return false;
+                    }
+                }
+            }
+            __result = 0; return false;
+        }
+    }
+
+    /// <summary>
+    /// Belt auto-register: for our depot stations, replaces the vanilla belt-input handler.
+    /// Vanilla only accepts items already listed in the 6-entry <c>needs</c> array (filled
+    /// from slots 0-4), so it cannot register arbitrary items into slots beyond the 5th.
+    /// This version reads each input belt directly: the item at the belt's rear is routed
+    /// to its existing Supply slot, or to a freshly claimed empty slot (set to Supply),
+    /// bypassing the <c>needs</c> cap entirely. Non-depot stations fall through to vanilla.
+    /// </summary>
+    [HarmonyPatch(typeof(StationComponent), nameof(StationComponent.UpdateInputSlots))]
+    public static class StationBeltInputPatch {
+        [ThreadStatic] private static int[] _tmpNeeds;
+
+        [HarmonyPrefix]
+        public static bool Prefix(StationComponent __instance, CargoTraffic traffic, SignData[] signPool, bool active) {
+            StationStore[] storage = __instance.storage;
+            // Discriminator: only our enlarged, planetary, non-collector depots.
+            if(storage == null || storage.Length <= 6) return true;
+            if(__instance.isCollector || __instance.isVeinCollector || __instance.isStellar) return true;
+
+            int max = UniversalDepotPlugin.SupplyMaxPerSlot.Value;
+            int[] needs = _tmpNeeds ?? (_tmpNeeds = new int[6]);
+            BeltComponent[] beltPool = traffic.beltPool;
+            SlotData[] slots = __instance.slots;
+
+            lock(storage) {
+                for(int i = 0; i < slots.Length; i++) {
+                    if(slots[i].dir != IODir.Input) {
+                        if(slots[i].dir != IODir.Output) { slots[i].beltId = 0; slots[i].counter = 0; }
+                        continue;
+                    }
+                    if(slots[i].counter > 0) { slots[i].counter--; continue; }
+                    if(slots[i].beltId == 0) continue;
+
+                    CargoPath path = traffic.GetCargoPath(beltPool[slots[i].beltId].segPathId);
+                    if(path == null) continue;
+                    int itemId = path.GetItemIdAtRear();
+                    if(itemId <= 0) continue;
+
+                    int slotIdx = findOrClaimSupplySlot(storage, itemId);
+                    bool canStore = slotIdx >= 0 && storage[slotIdx].count < max;
+                    if(!canStore) {
+                        // Cannot store: either this kind is full, or all slots are taken.
+                        // Overflow OFF → leave the item on the belt (back-pressure).
+                        // Overflow ON  → pick it off the belt and discard it (destroyed).
+                        // The per-station overflow flag is parked in `includeOrbitCollector`,
+                        // an unused-yet-natively-saved bool for a planetary non-collector station.
+                        if(!__instance.includeOrbitCollector) continue;
+                        needs[0] = itemId; needs[1] = needs[2] = needs[3] = needs[4] = needs[5] = 0;
+                        path.TryPickItemAtRear(needs, out int _, out byte _, out byte _);
+                        slots[i].counter = 1;
+                        continue;
+                    }
+
+                    needs[0] = itemId; needs[1] = needs[2] = needs[3] = needs[4] = needs[5] = 0;
+                    int picked = path.TryPickItemAtRear(needs, out int needIdx, out byte stack, out byte inc);
+                    if(needIdx != 0 || picked <= 0) continue;
+
+                    storage[slotIdx].itemId = itemId;
+                    storage[slotIdx].localLogic = ELogisticStorage.Supply;
+                    storage[slotIdx].remoteLogic = ELogisticStorage.None;      // planetary only, never interstellar
+                    storage[slotIdx].max = max;
+                    storage[slotIdx].count += stack;
+                    storage[slotIdx].inc += inc;
+                    slots[i].storageIdx = slotIdx + 1;
+                    slots[i].counter = 1;
+
+                    if(active) {
+                        int entityId = beltPool[slots[i].beltId].entityId;
+                        signPool[entityId].iconType = 1u;
+                        signPool[entityId].iconId0 = (uint)itemId;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Existing Supply slot for the item, else the first empty slot, else -1.</summary>
+        private static int findOrClaimSupplySlot(StationStore[] storage, int itemId) {
+            int firstEmpty = -1;
+            for(int i = 0; i < storage.Length; i++) {
+                if(storage[i].itemId == itemId) return i;
+                if(firstEmpty < 0 && storage[i].itemId <= 0) firstEmpty = i;
+            }
+            return firstEmpty;
+        }
+    }
+
+    /// <summary>
+    /// Adds a "Discard overflow" checkbox to the station window for our depots. Rather than
+    /// build a new Unity control, we reuse the vanilla orbital-collector checkbox: its button
+    /// already toggles <c>includeOrbitCollector</c> — the very field we repurpose as the
+    /// overflow flag — and its check image is re-synced every frame by the window's own
+    /// <c>_OnUpdate</c>. So we only reveal the group (normally hidden for planetary stations)
+    /// and relabel it. The toggle persists through the native save with the flag.
+    /// </summary>
+    [HarmonyPatch(typeof(UIStationWindow), "OnStationIdChange")]
+    public static class StationOverflowUIPatch {
+        [HarmonyPostfix]
+        public static void Postfix(UIStationWindow __instance) {
+            try {
+                int stationId = __instance.stationId;
+                PlanetTransport transport = __instance.transport;
+                if(stationId == 0 || transport == null) return;
+                StationComponent sc = transport.stationPool[stationId];
+                if(sc == null || sc.id != stationId || sc.storage == null) return;
+                if(sc.storage.Length <= 6 || sc.isCollector || sc.isStellar) return;   // not a depot
+
+                RectTransform group = __instance.includeOrbitCollectorGroup;
+                if(group == null) return;
+
+                // The planetary layout branch hid the group and set an absolute window height,
+                // so re-show + nudge are idempotent across repeated OnStationIdChange calls.
+                group.gameObject.SetActive(true);
+                group.anchoredPosition = new Vector2(group.anchoredPosition.x, -116f);
+                __instance.windowTrans.sizeDelta += new Vector2(0f, 24f);
+
+                // Stop the localizers from overwriting our label, then relabel.
+                foreach(Localizer loc in group.GetComponentsInChildren<Localizer>(true)) {
+                    loc.stringKey = "";
+                    loc.enabled = false;
+                }
+                foreach(Text t in group.GetComponentsInChildren<Text>(true)) {
+                    t.text = "Discard overflow";
+                }
+            } catch(Exception ex) {
+                UniversalDepotPlugin.Log.LogWarning($"[Depot] overflow UI patch failed: {ex.Message}");
             }
         }
     }

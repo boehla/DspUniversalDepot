@@ -35,7 +35,7 @@ namespace DspUniversalDepot {
     public class UniversalDepotPlugin : BaseUnityPlugin {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.6.0";
+        public const string VERSION = "0.7.0";
 
         // Nebula's API plugin GUID — kept as a literal so the no-Nebula path never touches a Nebula type.
         public const string NEBULA_API_GUID = "dsp.nebula-multiplayer-api";
@@ -50,6 +50,23 @@ namespace DspUniversalDepot {
         public static ConfigEntry<int> BuildBarIndex;
         public static ConfigEntry<int> GridColumns;
         public static ConfigEntry<int> GridVisibleRows;
+
+        // --- custom design (v0.7.0) ---
+        public static ConfigEntry<bool> CustomIconEnabled;
+        public static ConfigEntry<bool> CustomModel;
+        public static ConfigEntry<int> DepotModelId;
+        public static ConfigEntry<string> TintColor;
+
+        // Resolved at registration time. _depotModelId is 0 until a custom model is
+        // successfully queued; the source PLS model id is kept for the safe fallback.
+        private static int _depotModelId;
+        private static int _plsModelId;
+        private static Sprite _depotIconSprite;
+
+        private static readonly FieldInfo _itemIconField =
+            typeof(ItemProto).GetField("_iconSprite", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo _recipeIconField =
+            typeof(RecipeProto).GetField("_iconSprite", BindingFlags.Instance | BindingFlags.NonPublic);
 
         private void Awake() {
             Log = Logger;
@@ -75,9 +92,27 @@ namespace DspUniversalDepot {
             GridVisibleRows = Config.Bind("UI", "GridVisibleRows", 4,
                 "Number of tile rows visible at once before the grid scrolls.");
 
+            CustomIconEnabled = Config.Bind("Design", "CustomIcon", true,
+                "Use the mod's own build-menu/inventory icon instead of the cloned\n" +
+                "logistics-station icon.");
+            CustomModel = Config.Bind("Design", "CustomModel", true,
+                "Give the placed depot its own tinted model so it is visually distinct from a\n" +
+                "normal Planetary Logistics Station. Reuses the PLS mesh/prefab (same ports,\n" +
+                "drones, collisions) — only the colour changes. Turn OFF for a plain PLS clone.");
+            DepotModelId = Config.Bind("Design", "DepotModelId", 0,
+                "Model proto ID for the custom depot model. 0 = auto-assign the next free ID.\n" +
+                "Change only if it conflicts with another mod's custom model.");
+            TintColor = Config.Bind("Design", "TintColor", "#33D6B0",
+                "Tint applied to the depot model (hex #RRGGBB or #RRGGBBAA). It multiplies the\n" +
+                "base albedo, so the metal/panel shading is preserved. Default is a teal-green.");
+
             // LDBTool fires PreAddDataAction once the vanilla protos are loaded
             // but before it merges custom protos — the right moment to clone.
             LDBTool.PreAddDataAction += registerDepot;
+            // PostAddDataAction runs after our protos are merged into LDB but before
+            // LDBTool rebuilds the icon atlas — the right moment to inject the custom
+            // icon and to build + tint the custom model.
+            LDBTool.PostAddDataAction += applyDepotAssets;
 
             Harmony harmony = new Harmony(GUID);
             harmony.PatchAll(typeof(UniversalDepotPlugin).Assembly);
@@ -127,6 +162,25 @@ namespace DspUniversalDepot {
                 item.IsEntity = true;
                 item.CanBuild = true;
 
+                // Remember the PLS model for the fallback path; the copied item still
+                // points at it via ModelIndex / the copied (shared) prefabDesc.
+                _plsModelId = src.ModelIndex;
+
+                // Queue a private, tinted clone of the PLS model so the depot looks distinct.
+                // On failure the item keeps the PLS ModelIndex (plain clone) — never fatal.
+                if(CustomModel.Value) {
+                    ModelProto depotModel = buildDepotModel(src);
+                    if(depotModel != null) {
+                        LDBTool.PreAddProto(depotModel);
+                        _depotModelId = depotModel.ID;   // Bind() may rewrite ID; read it back
+                        item.ModelIndex = depotModel.ID;
+                    }
+                }
+
+                // Clear the inherited PLS icon path so ItemProto/RecipeProto.Preload won't
+                // reload it over our injected sprite (applyDepotAssets sets _iconSprite).
+                if(CustomIconEnabled.Value) item.IconPath = "";
+
                 RecipeProto recipe = buildRecipe(src, item);
                 item.maincraft = recipe;
                 item.handcraft = recipe;
@@ -136,7 +190,8 @@ namespace DspUniversalDepot {
                 LDBTool.SetBuildBar(category, index, item.ID);
 
                 Log.LogInfo($"[Depot] Registered item {item.ID} cloned from {src.ID} \"{src.Name}\" " +
-                    $"(model={src.ModelIndex}) at build bar {category},{index} with {SlotCount.Value} supply slots");
+                    $"(model={item.ModelIndex}, srcModel={src.ModelIndex}) at build bar " +
+                    $"{category},{index} with {SlotCount.Value} supply slots");
             } catch(Exception ex) {
                 Log.LogError($"[Depot] registerDepot failed: {ex}");
             }
@@ -163,8 +218,193 @@ namespace DspUniversalDepot {
             recipe.Results = new int[] { item.ID };
             recipe.ResultCounts = new int[] { 1 };
             recipe.preTech = null;
-            recipe.IconPath = src.IconPath;
+            // Empty when the custom icon is active so Preload won't load the PLS sprite
+            // over the one applyDepotAssets injects; otherwise inherit the PLS recipe icon.
+            recipe.IconPath = CustomIconEnabled.Value ? "" : src.IconPath;
             return recipe;
+        }
+
+        /// <summary>
+        /// Build a private <see cref="ModelProto"/> for the depot that reuses the PLS
+        /// prefab path (identical mesh, colliders, belt/drone ports) but lives under its own
+        /// model index. <see cref="applyDepotAssets"/> later preloads it and tints its own
+        /// material copies, so only depot instances are recoloured — real PLS is untouched.
+        /// Ruin/wreckage spawning is disabled (RuinId = 0) to avoid loading per-id ruin
+        /// assets that do not exist for our model.
+        /// </summary>
+        private ModelProto buildDepotModel(ItemProto src) {
+            ModelProto pls = LDB.models.Select(src.ModelIndex);
+            if(pls == null || string.IsNullOrEmpty(pls.PrefabPath)) {
+                Log.LogWarning($"[Depot] PLS model {src.ModelIndex} has no prefab path; " +
+                    "custom model skipped (falling back to plain PLS clone).");
+                return null;
+            }
+
+            ModelProto m = new ModelProto();
+            m.Name = "UniversalDepotModel";
+            m.SID = "";
+            m.ID = DepotModelId.Value > 0 ? DepotModelId.Value : nextFreeModelId();
+            m.OverrideName = "Universal Planetary Depot";
+            m.Order = pls.Order;
+            m.ObjectType = pls.ObjectType;
+            m.RendererType = pls.RendererType;
+            m.RotSymmetry = pls.RotSymmetry;
+            m.HpMax = pls.HpMax;
+            m.HpUpgrade = pls.HpUpgrade;
+            m.HpRecover = pls.HpRecover;
+            m.PrefabPath = pls.PrefabPath;
+            m.RuinType = pls.RuinType;
+            m.RuinId = 0;
+            m.RuinCount = 0;
+            m.RuinLifeTime = pls.RuinLifeTime;
+            return m;
+        }
+
+        /// <summary>Largest existing model ID + 1, kept within the modelArray sizing (count + 64).</summary>
+        private static int nextFreeModelId() {
+            int maxId = 0;
+            foreach(ModelProto mp in LDB.models.dataArray) {
+                if(mp != null && mp.ID > maxId) maxId = mp.ID;
+            }
+            return maxId + 1;
+        }
+
+        /// <summary>
+        /// Runs after LDBTool merged our protos but before it rebuilds the icon atlas.
+        /// (1) Rebuilds the model tables so our new ModelProto is reachable, preloads its
+        /// prefab and tints its private material copies, then repoints the item's prefabDesc.
+        /// (2) Injects the custom icon sprite onto the item + recipe. Every step is guarded;
+        /// any failure leaves the depot as a working plain PLS clone.
+        /// </summary>
+        private void applyDepotAssets() {
+            if(CustomModel.Value && _depotModelId > 0) {
+                try { applyCustomModel(); }
+                catch(Exception ex) {
+                    Log.LogError($"[Depot] custom model failed, reverting to PLS clone: {ex}");
+                    revertToPlsModel();
+                }
+            }
+
+            if(CustomIconEnabled.Value) {
+                try { applyCustomIcon(); }
+                catch(Exception ex) { Log.LogWarning($"[Depot] custom icon failed: {ex.Message}"); }
+            }
+        }
+
+        private void applyCustomModel() {
+            // LDBTool's AddProtosToSet does not call ModelProtoSet.OnAfterDeserialize, so the
+            // ID-indexed modelArray + static index tables still miss our new model. Rebuild them.
+            LDB.models.OnAfterDeserialize();
+            ModelProto.InitMaxModelIndex();
+            ModelProto.InitModelIndices();
+            ModelProto.InitModelOrders();
+
+            ModelProto depotModel = LDB.models.Select(_depotModelId);
+            if(depotModel == null) throw new Exception($"depot model {_depotModelId} not in LDB after rebuild");
+
+            depotModel.Preload();   // Resources.Load the PLS prefab → builds this model's own prefabDesc
+            PrefabDesc pd = depotModel.prefabDesc;
+            if(pd == null || pd.lodMaterials == null || pd.lodMaterials.Length == 0)
+                throw new Exception("depot prefabDesc/lodMaterials empty after Preload");
+
+            Color tint = parseColor(TintColor.Value);
+            int tinted = tintPrefab(pd, tint);
+
+            // Point the item at the tinted prefabDesc so the build ghost (prefabDesc.modelIndex)
+            // and gameplay flags match the placed entity, which renders via item.ModelIndex.
+            ItemProto item = LDB.items.Select(DepotItemId.Value);
+            if(item != null) {
+                item.prefabDesc = pd;
+                item.ModelIndex = _depotModelId;
+            }
+            Log.LogInfo($"[Depot] custom model {_depotModelId} ready (prefab='{depotModel.PrefabPath}', " +
+                $"tinted {tinted} materials, tint={TintColor.Value})");
+        }
+
+        private void revertToPlsModel() {
+            ItemProto item = LDB.items.Select(DepotItemId.Value);
+            if(item != null && _plsModelId > 0) {
+                ModelProto pls = LDB.models.Select(_plsModelId);
+                item.ModelIndex = _plsModelId;
+                if(pls != null) item.prefabDesc = pls.prefabDesc;
+            }
+        }
+
+        /// <summary>
+        /// Clone every render material in the prefab's <c>materials</c> and <c>lodMaterials</c>
+        /// arrays and multiply its albedo by <paramref name="tint"/>. Cloning is essential:
+        /// Resources.Load caches one prefab per path, so PLS and depot share the same Material
+        /// instances — mutating them in place would tint real stations too. Blueprint/ghost
+        /// materials are left alone so build previews keep their normal look. Returns the count.
+        /// </summary>
+        private static int tintPrefab(PrefabDesc pd, Color tint) {
+            int n = tintMaterials(pd.materials, tint);
+            if(pd.lodMaterials != null) {
+                foreach(Material[] lod in pd.lodMaterials) n += tintMaterials(lod, tint);
+            }
+            return n;
+        }
+
+        private static int tintMaterials(Material[] mats, Color tint) {
+            if(mats == null) return 0;
+            int n = 0;
+            for(int i = 0; i < mats.Length; i++) {
+                if(mats[i] == null) continue;
+                Material m = new Material(mats[i]);   // private copy — never touch the shared one
+                if(m.HasProperty("_Color")) m.SetColor("_Color", m.GetColor("_Color") * tint);
+                if(m.HasProperty("_TintColor")) m.SetColor("_TintColor", tint);
+                mats[i] = m;
+                n++;
+            }
+            return n;
+        }
+
+        private void applyCustomIcon() {
+            Sprite sp = loadDepotIcon();
+            if(sp == null) return;
+            ItemProto item = LDB.items.Select(DepotItemId.Value);
+            RecipeProto recipe = LDB.recipes.Select(DepotRecipeId.Value);
+            if(item != null) _itemIconField?.SetValue(item, sp);
+            if(recipe != null) _recipeIconField?.SetValue(recipe, sp);
+            Log.LogInfo("[Depot] custom icon applied to item + recipe");
+        }
+
+        /// <summary>
+        /// Decode the embedded 80×80 PNG into a Sprite (cached). 80px matches the game's icon
+        /// atlas tile (IconSet.Create blits a fixed 80×80 region), so it shows crisply both in
+        /// the atlas (inventory/replicator) and as the directly-rendered build-menu/tooltip sprite.
+        /// </summary>
+        private static Sprite loadDepotIcon() {
+            if(_depotIconSprite != null) return _depotIconSprite;
+            try {
+                Assembly asm = Assembly.GetExecutingAssembly();
+                byte[] data = null;
+                using(System.IO.Stream s = asm.GetManifestResourceStream("DspUniversalDepot.depot-icon.png")) {
+                    if(s != null) {
+                        data = new byte[s.Length];
+                        int off = 0, read;
+                        while(off < data.Length && (read = s.Read(data, off, data.Length - off)) > 0) off += read;
+                    }
+                }
+                if(data == null) { Log.LogWarning("[Depot] embedded icon resource not found"); return null; }
+
+                Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if(!tex.LoadImage(data)) { Log.LogWarning("[Depot] icon decode failed"); return null; }
+                tex.name = "depot-icon";
+                _depotIconSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height),
+                    new Vector2(0.5f, 0.5f), 100f);
+                _depotIconSprite.name = "depot-icon";
+            } catch(Exception ex) {
+                Log.LogWarning($"[Depot] icon load failed: {ex.Message}");
+            }
+            return _depotIconSprite;
+        }
+
+        /// <summary>Parse "#RRGGBB" / "#RRGGBBAA" (alpha defaults to opaque). Falls back to white.</summary>
+        private static Color parseColor(string hex) {
+            if(!string.IsNullOrEmpty(hex) && ColorUtility.TryParseHtmlString(hex.Trim(), out Color c)) return c;
+            Log.LogWarning($"[Depot] could not parse TintColor '{hex}', using white (no tint)");
+            return Color.white;
         }
     }
 

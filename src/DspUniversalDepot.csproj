@@ -9,7 +9,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>DspUniversalDepot</AssemblyName>
     <RootNamespace>DspUniversalDepot</RootNamespace>
-    <Version>0.6.2</Version>
+    <Version>0.7.0</Version>
     <Description>A planetary supply station cloned from the vanilla logistics station: belt-fed items auto-register as supply and drones distribute them across the planet. Holds many item kinds; saves natively.</Description>
     <Authors>boehla</Authors>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
@@ -30,10 +30,22 @@
     <Reference Include="UnityEngine.CoreModule"><HintPath>../libs/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.UI"><HintPath>../libs/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.TextRenderingModule"><HintPath>../libs/UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.ImageConversionModule"><HintPath>../libs/UnityEngine.ImageConversionModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="BepInEx"><HintPath>../libs/BepInEx.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="0Harmony"><HintPath>../libs/0Harmony.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="LDBTool"><HintPath>../libs/LDBTool.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="NebulaAPI"><HintPath>../libs/NebulaAPI.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <!--
+    The custom build-menu/inventory icon is embedded into the DLL (single-file
+    plugin, no path lookups). The 80x80 variant matches the game's icon-atlas tile
+    size. LogicalName is fixed so the runtime loader can find it by a stable name.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="../icons/depot-icon-80.png">
+      <LogicalName>DspUniversalDepot.depot-icon.png</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!--

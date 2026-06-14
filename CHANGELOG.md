@@ -5,6 +5,27 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-14
+
+### Own design for the depot
+
+The depot is no longer visually identical to a Planetary Logistics Station.
+
+- **Custom build-menu / inventory icon** — a brand-style ringed planet with a supply crate,
+  embedded in the DLL (80×80, matching the game's icon-atlas tile). Injected in
+  `PostAddDataAction` before LDBTool rebuilds the icon atlas, so it shows in the build bar,
+  inventory, replicator and tooltips. Toggle with `Design/CustomIcon`.
+- **Tinted building model** — the placed depot gets its own model proto that reuses the PLS
+  prefab (identical mesh, colliders, belt/drone ports) but renders with cloned, tinted
+  materials, so only depots are recoloured — real stations are untouched. Colour is
+  configurable (`Design/TintColor`, default teal). Toggle with `Design/CustomModel`; on any
+  failure it falls back to a plain PLS clone.
+- New reference `UnityEngine.ImageConversionModule.dll` (PNG decode); `download-libs.sh` updated.
+
+> **Testing note:** the custom model path is **not yet verified in a running game**. Place a
+> depot and a normal PLS side by side: the depot should be tinted, the PLS unchanged; confirm
+> belt input, drone delivery, overflow toggle and save/load still work.
+
 ## [0.6.2] - 2026-06-13
 
 ### Fixed

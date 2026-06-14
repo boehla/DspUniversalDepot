@@ -5,6 +5,30 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-06-14
+
+### Fixed: Nebula client crash when building belts near a depot
+
+A Nebula client could crash with `NullReferenceException` in `PlanetFactory.OnBeltBuilt`
+(via `BuildEntityRequestProcessor` → `BuildFinally`) whenever a belt was placed near a depot.
+
+- **Root cause** — Nebula serializes the *raw* `modelIndex` of every build. The v0.7.0 custom
+  depot model only registered its model proto when `Design/CustomModel` was on, so peers with
+  a different Design config (toggle off, different `DepotModelId`, or a transient model-preload
+  failure) had no `PrefabDesc` at the synced model id. Vanilla `OnBeltBuilt` scans entities
+  within 6 m of a new belt and dereferences `PrefabDescByModelIndex[entity.modelIndex].addonType`,
+  which is `null` for that id → NRE every time a belt was built next to a depot.
+- **Fix** — the depot model proto is now **always registered and preloaded**, regardless of
+  `CustomModel`; the toggle only controls tinting. So the model id resolves to a valid
+  `PrefabDesc` (tinted or plain PLS) on every peer. The revert/fallback path also keeps the
+  registered model id resolvable (points its `prefabDesc` at the PLS one). An untinted depot
+  is visually identical to before. _Residual caveat: peers must still run the same model-adding
+  mods for the auto-assigned id to line up._
+
+### Changed
+
+- Default `SlotCount` raised from **60 to 100**.
+
 ## [0.7.0] - 2026-06-14
 
 ### Own design for the depot

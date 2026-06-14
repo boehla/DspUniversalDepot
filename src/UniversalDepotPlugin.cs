@@ -36,7 +36,7 @@ namespace DspUniversalDepot {
     public class UniversalDepotPlugin : BaseUnityPlugin {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.7.0";
+        public const string VERSION = "0.7.1";
 
         // Nebula's API plugin GUID — kept as a literal so the no-Nebula path never touches a Nebula type.
         public const string NEBULA_API_GUID = "dsp.nebula-multiplayer-api";
@@ -73,7 +73,7 @@ namespace DspUniversalDepot {
         private void Awake() {
             Log = Logger;
 
-            SlotCount = Config.Bind("General", "SlotCount", 60,
+            SlotCount = Config.Bind("General", "SlotCount", 100,
                 "Number of distinct item slots (kinds) the depot can hold and supply.\n" +
                 "Each slot is auto-assigned when an item first arrives by belt. The vanilla\n" +
                 "station window only shows the first 6 slots; the rest are managed automatically.");
@@ -201,15 +201,20 @@ namespace DspUniversalDepot {
                 // points at it via ModelIndex / the copied (shared) prefabDesc.
                 _plsModelId = src.ModelIndex;
 
-                // Queue a private, tinted clone of the PLS model so the depot looks distinct.
+                // Always register a private depot ModelProto, even when CustomModel (tint) is off.
+                // Nebula serializes the RAW modelIndex of every build, and the receiving peer looks
+                // it up in its own LDB.models.modelArray. If the depot's model id is missing (or has
+                // a null prefabDesc) on a peer, vanilla PlanetFactory.OnBeltBuilt dereferences a null
+                // PrefabDescByModelIndex[id] the instant a belt is placed near a depot → client NRE.
+                // So the id must exist + resolve identically on every peer; CustomModel only controls
+                // the tint, not whether the model exists. buildDepotModel reuses the PLS prefab (same
+                // mesh/colliders/ports), so an untinted depot model is visually a plain PLS clone.
                 // On failure the item keeps the PLS ModelIndex (plain clone) — never fatal.
-                if(CustomModel.Value) {
-                    ModelProto depotModel = buildDepotModel(src);
-                    if(depotModel != null) {
-                        LDBTool.PreAddProto(depotModel);
-                        _depotModelId = depotModel.ID;   // Bind() may rewrite ID; read it back
-                        item.ModelIndex = depotModel.ID;
-                    }
+                ModelProto depotModel = buildDepotModel(src);
+                if(depotModel != null) {
+                    LDBTool.PreAddProto(depotModel);
+                    _depotModelId = depotModel.ID;   // Bind() may rewrite ID; read it back
+                    item.ModelIndex = depotModel.ID;
                 }
 
                 // Clear the inherited PLS icon path so ItemProto/RecipeProto.Preload won't
@@ -349,15 +354,18 @@ namespace DspUniversalDepot {
         /// <summary>
         /// Runs after LDBTool merged our protos but before it rebuilds the icon atlas.
         /// (1) Rebuilds the model tables so our new ModelProto is reachable, preloads its
-        /// prefab and tints its private material copies, then repoints the item's prefabDesc.
-        /// (2) Injects the custom icon sprite onto the item + recipe. Every step is guarded;
-        /// any failure leaves the depot as a working plain PLS clone.
+        /// prefab and (when CustomModel is on) tints its private material copies, then repoints the
+        /// item's prefabDesc. This runs even with tinting off so the depot model id always resolves —
+        /// a Nebula requirement (see registerDepot). (2) Injects the custom icon sprite onto the item
+        /// + recipe. Every step is guarded; any failure leaves the depot as a working plain PLS clone.
         /// </summary>
         private void applyDepotAssets() {
-            if(CustomModel.Value && _depotModelId > 0) {
-                try { applyCustomModel(); }
+            // Always set the depot model up (preload its own prefabDesc) so its model id resolves on
+            // this peer — required for Nebula build-sync safety. Tinting inside is gated on CustomModel.
+            if(_depotModelId > 0) {
+                try { applyDepotModel(); }
                 catch(Exception ex) {
-                    Log.LogError($"[Depot] custom model failed, reverting to PLS clone: {ex}");
+                    Log.LogError($"[Depot] depot model setup failed, reverting to PLS clone: {ex}");
                     revertToPlsModel();
                 }
             }
@@ -368,7 +376,7 @@ namespace DspUniversalDepot {
             }
         }
 
-        private void applyCustomModel() {
+        private void applyDepotModel() {
             // LDBTool's AddProtosToSet does not call ModelProtoSet.OnAfterDeserialize, so the
             // ID-indexed modelArray + static index tables still miss our new model. Rebuild them.
             LDB.models.OnAfterDeserialize();
@@ -384,26 +392,40 @@ namespace DspUniversalDepot {
             if(pd == null || pd.lodMaterials == null || pd.lodMaterials.Length == 0)
                 throw new Exception("depot prefabDesc/lodMaterials empty after Preload");
 
-            Color tint = parseColor(TintColor.Value);
-            int tinted = tintPrefab(pd, tint);
+            // Tint only when the player opted in; otherwise the model reuses the PLS materials
+            // untouched (visually a plain PLS clone). Either way the model id now resolves on this
+            // peer (non-null prefabDesc in PrefabDescByModelIndex), which is what keeps Nebula's
+            // OnBeltBuilt lookup safe.
+            int tinted = 0;
+            if(CustomModel.Value) tinted = tintPrefab(pd, parseColor(TintColor.Value));
 
-            // Point the item at the tinted prefabDesc so the build ghost (prefabDesc.modelIndex)
+            // Point the item at this prefabDesc so the build ghost (prefabDesc.modelIndex)
             // and gameplay flags match the placed entity, which renders via item.ModelIndex.
             ItemProto item = LDB.items.Select(DepotItemId.Value);
             if(item != null) {
                 item.prefabDesc = pd;
                 item.ModelIndex = _depotModelId;
             }
-            Log.LogInfo($"[Depot] custom model {_depotModelId} ready (prefab='{depotModel.PrefabPath}', " +
-                $"tinted {tinted} materials, tint={TintColor.Value})");
+            Log.LogInfo($"[Depot] depot model {_depotModelId} ready (prefab='{depotModel.PrefabPath}', " +
+                $"tinted {tinted} materials, tint={(CustomModel.Value ? TintColor.Value : "off")})");
         }
 
         private void revertToPlsModel() {
+            ModelProto pls = _plsModelId > 0 ? LDB.models.Select(_plsModelId) : null;
+
             ItemProto item = LDB.items.Select(DepotItemId.Value);
-            if(item != null && _plsModelId > 0) {
-                ModelProto pls = LDB.models.Select(_plsModelId);
+            if(item != null && pls != null) {
                 item.ModelIndex = _plsModelId;
-                if(pls != null) item.prefabDesc = pls.prefabDesc;
+                item.prefabDesc = pls.prefabDesc;
+            }
+
+            // Network safety: a peer whose model set up fine will still sync builds carrying the depot
+            // model id. Keep our registered depot ModelProto resolvable by pointing its prefabDesc at
+            // the PLS one, so PrefabDescByModelIndex[depotModelId] is non-null here too and OnBeltBuilt
+            // won't NRE when a belt is placed near a depot.
+            if(_depotModelId > 0 && pls != null) {
+                ModelProto depotModel = LDB.models.Select(_depotModelId);
+                if(depotModel != null && depotModel.prefabDesc == null) depotModel.prefabDesc = pls.prefabDesc;
             }
         }
 
@@ -714,7 +736,7 @@ namespace DspUniversalDepot {
     /// <b>unbounded</b> loop — <c>for (i = 0; i &lt; num12; i++) icons[i].position = …</c>, where
     /// <c>num12</c> is the slot count rounded up to the column count. Vanilla stations never exceed
     /// the prefab's small <c>icons</c> array, so the missing bound is harmless there; our depot has
-    /// <see cref="UniversalDepotPlugin.SlotCount"/> (60) slots, so <c>icons[i]</c> runs off the end
+    /// <see cref="UniversalDepotPlugin.SlotCount"/> (100) slots, so <c>icons[i]</c> runs off the end
     /// and throws IndexOutOfRangeException every frame the depot is on screen. Growing the pool once
     /// on creation — cloning the prefab's <c>icons[0]</c> exactly as the game's own _OnCreate does —
     /// keeps every index in range. (+16 covers the column rounding plus the equipment/drone icons.)

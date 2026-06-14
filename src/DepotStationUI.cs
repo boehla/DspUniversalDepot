@@ -61,12 +61,12 @@ namespace DspUniversalDepot {
         // the cells — and therefore the whole window — balloon when the width read large at build
         // time). Column count / visible rows come from config; the grid width follows from them.
         private const float cellSize = 38f;
-        private const float gridTop = -70f;      // grid top edge, just below the moved checkbox
-        private const float gridLeft = 20f;
-        private const float gridSpacing = 4f;
+        private const float gridTop = -110f;     // grid top edge, sits well below title + checkbox
+        private const float gridLeft = 40f;
+        private const float gridSpacing = 8f;
         private const float windowFooter = 180f; // room kept below the grid for the vanilla config panel
-        private const float checkboxTop = -40f;  // overflow checkbox: just under the title bar
-        private const float checkboxLeft = 24f;
+        private const float checkboxTop = -84f;  // overflow checkbox: sits below the "Local station" line
+        private const float checkboxLeft = 48f;
 
         private static Sprite White() {
             if(whiteSprite == null) {

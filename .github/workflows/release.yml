@@ -57,6 +57,6 @@ jobs:
             See [README.md](https://github.com/boehla/DspUniversalDepot#readme) for full docs.
           files: |
             DspUniversalDepot-v${{ steps.version.outputs.version }}-source.zip
-            releases/DspUniversalDepot-v${{ steps.version.outputs.version }}-r2modman.zip
+            releases/DspUniversalDepot-${{ steps.version.outputs.version }}-r2modman.zip
           draft: false
           prerelease: false

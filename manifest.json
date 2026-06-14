@@ -1,6 +1,6 @@
 {
   "name": "DspUniversalDepot",
-  "version_number": "0.7.2",
+  "version_number": "0.7.3",
   "website_url": "https://github.com/boehla/DspUniversalDepot",
   "description": "A planetary supply station that holds many item kinds. Feed it by belt and drones deliver the items to any station on the planet that demands them. Cloned from the vanilla logistics station; saves natively.",
   "icon": "icon.png",

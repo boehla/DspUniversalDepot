@@ -5,6 +5,28 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-06-14
+
+### Fixed: depot intake dead on Nebula clients (belt backed up)
+
+On a client the depot looked like it accepted nothing — the feeding belt backed up — while the
+host stored items normally. A reconnect synced the current contents once, then the client stalled
+again.
+
+- **Root cause** — the belt-intake patch (`StationBeltInputPatch`) deliberately skipped on Nebula
+  clients, on the wrong assumption that storage was streamed down from the host. It isn't: Nebula
+  only gates the interstellar *ship* tick (`InternalTickRemote`) to the host; a station's belt
+  intake (`UpdateInputSlots`) runs in each peer's **local** factory simulation, and station storage
+  is full-synced only once on connect/load. With our patch skipping, vanilla `UpdateInputSlots` ran
+  instead — but it can't service the depot's auto-assigned slots beyond the 6-entry `needs` array,
+  so the client's belt was never consumed.
+- **Fix** — the intake now runs on every peer (host and client alike), exactly like a vanilla
+  station. Belts are simulated independently per peer, so consuming items removes them only from the
+  client's own belt (no networked item creation, no duplication); the host stays authoritative and
+  the connect/load full-sync reconciles counts. _Minor: because slots are auto-assigned by arrival
+  order, the same items may briefly occupy different grid cells on host vs client until a full sync;
+  cosmetic only._
+
 ## [0.7.2] - 2026-06-14
 
 ### Fixed: Nebula client crash building belts near a depot (the real cause)

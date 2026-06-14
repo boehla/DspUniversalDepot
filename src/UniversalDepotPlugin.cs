@@ -38,7 +38,7 @@ namespace DspUniversalDepot {
     public class UniversalDepotPlugin : BaseUnityPlugin {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.7.2";
+        public const string VERSION = "0.7.3";
 
         // Nebula's API plugin GUID — kept as a literal so the no-Nebula path never touches a Nebula type.
         public const string NEBULA_API_GUID = "dsp.nebula-multiplayer-api";
@@ -630,10 +630,16 @@ namespace DspUniversalDepot {
             // Discriminator: only our enlarged, planetary, non-collector depots.
             if(storage == null || storage.Length <= 6) return true;
             if(__instance.isCollector || __instance.isVeinCollector || __instance.isStellar) return true;
-            // In multiplayer the host is authoritative for the factory tick and Nebula syncs station
-            // storage down; a client must not also consume belt items / assign slots or it would diverge.
-            // (The Enabled gate keeps this Nebula-free in singleplayer / without Nebula.)
-            if(NebulaCompat.Enabled && NebulaCompat.IsClientInMultiplayer) return true;
+            // NOTE: this runs on every peer, including Nebula clients — on purpose. Nebula only gates
+            // the interstellar ship tick (StationComponent.InternalTickRemote) to the host; the belt
+            // intake (UpdateInputSlots) runs in each peer's LOCAL factory simulation, exactly like a
+            // vanilla station. Station storage counts are NOT streamed continuously (only a one-shot
+            // full sync on connect/load), so if we skipped on the client its belts would never be
+            // consumed and the depot would look dead while the host quietly filled up. Belts are
+            // simulated independently per peer, so consuming here removes items only from the client's
+            // own belt — no networked item creation, no duplication; the host stays authoritative and
+            // the periodic/connect full-sync reconciles the counts. (Earlier versions skipped on the
+            // client, which is what made the belt back up in multiplayer.)
 
             int max = UniversalDepotPlugin.SupplyMaxPerSlot.Value;
             int[] needs = _tmpNeeds ?? (_tmpNeeds = new int[6]);

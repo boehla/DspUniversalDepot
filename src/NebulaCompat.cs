@@ -22,9 +22,10 @@ namespace DspUniversalDepot {
     /// AccessTools.GetTypesFromAssembly.
     ///
     /// What is synced: the per-building "Discard overflow" toggle (a discrete, host-authoritative UI
-    /// action). Belt auto-registration of supply slots is left to Nebula's host-authoritative,
-    /// deterministic factory tick — see <c>StationBeltInputPatch</c>, which skips client-side mutation
-    /// in multiplayer so the host stays the single source of truth and Nebula syncs storage down.
+    /// action). Belt auto-registration of supply slots is NOT networked — it runs in each peer's local
+    /// factory simulation (<c>StationBeltInputPatch</c> runs on host and client alike, like a vanilla
+    /// station's intake), since Nebula streams station storage only as a one-shot full sync on
+    /// connect/load, not per tick. The host stays authoritative and that full sync reconciles counts.
     /// </summary>
     public static class NebulaCompat {
         private static volatile bool _active;

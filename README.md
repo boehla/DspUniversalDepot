@@ -83,7 +83,24 @@ DepotRecipeId = 7777
 
 ## Column (1-12) inside the build category where the icon appears.
 BuildBarIndex = 12
+
+[Design]
+## Use the mod's own build-menu/inventory icon.
+CustomIcon = true
+## Give the placed depot its own distinct look (vs. a plain logistics-station clone).
+CustomModel = true
+## Render a fully custom procedural 3D mesh (platform + silo + crates). Requires CustomModel.
+## Off = keep the station mesh, just tinted.
+CustomMesh = true
+## Tint applied to the depot model (hex #RRGGBB or #RRGGBBAA), multiplies the base albedo.
+TintColor = #33D6B0
+## Debug aid: render the custom model as a single plain box.
+MeshDebugBox = false
 ```
+
+The placed depot renders its own procedurally generated model (a stacked silo with corner
+crates and an antenna) while keeping the logistics station's ports, drones and footprint, so it
+behaves identically to the building it is cloned from — only the look changes.
 
 ## Compatibility
 

@@ -38,7 +38,7 @@ namespace DspUniversalDepot {
     public class UniversalDepotPlugin : BaseUnityPlugin {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.7.3";
+        public const string VERSION = "0.8.0";
 
         // Nebula's API plugin GUID — kept as a literal so the no-Nebula path never touches a Nebula type.
         public const string NEBULA_API_GUID = "dsp.nebula-multiplayer-api";
@@ -58,6 +58,8 @@ namespace DspUniversalDepot {
         // --- custom design (v0.7.0) ---
         public static ConfigEntry<bool> CustomIconEnabled;
         public static ConfigEntry<bool> CustomModel;
+        public static ConfigEntry<bool> CustomMesh;
+        public static ConfigEntry<bool> MeshDebugBox;
         public static ConfigEntry<int> DepotModelId;
         public static ConfigEntry<string> TintColor;
 
@@ -108,9 +110,19 @@ namespace DspUniversalDepot {
                 "Use the mod's own build-menu/inventory icon instead of the cloned\n" +
                 "logistics-station icon.");
             CustomModel = Config.Bind("Design", "CustomModel", true,
-                "Give the placed depot its own tinted model so it is visually distinct from a\n" +
-                "normal Planetary Logistics Station. Reuses the PLS mesh/prefab (same ports,\n" +
-                "drones, collisions) — only the colour changes. Turn OFF for a plain PLS clone.");
+                "Give the placed depot its own model so it is visually distinct from a normal\n" +
+                "Planetary Logistics Station. Keeps the PLS prefab's ports, drones and collisions —\n" +
+                "only the rendered look changes. Turn OFF for a plain PLS clone.");
+            CustomMesh = Config.Bind("Design", "CustomMesh", true,
+                "Render a fully custom, procedurally generated 3D mesh (platform + silo + crates)\n" +
+                "instead of the Planetary Logistics Station's geometry. The functional prefab\n" +
+                "(belt/drone ports, colliders, footprint) is still the PLS, so the building behaves\n" +
+                "identically — only the shape you see changes. OFF = keep the PLS mesh, just tinted.\n" +
+                "Requires CustomModel = true.");
+            MeshDebugBox = Config.Bind("Design", "MeshDebugBox", false,
+                "Debug aid: render the custom model as a single plain box filling the footprint\n" +
+                "instead of the full depot shape. Use this to verify the custom-mesh pipeline\n" +
+                "renders correctly on your machine before judging the real silhouette.");
             DepotModelId = Config.Bind("Design", "DepotModelId", 0,
                 "Model proto ID for the custom depot model. 0 = auto-assign the next free ID.\n" +
                 "Change only if it conflicts with another mod's custom model.");
@@ -394,12 +406,21 @@ namespace DspUniversalDepot {
             if(pd == null || pd.lodMaterials == null || pd.lodMaterials.Length == 0)
                 throw new Exception("depot prefabDesc/lodMaterials empty after Preload");
 
-            // Tint only when the player opted in; otherwise the model reuses the PLS materials
-            // untouched (visually a plain PLS clone). Either way the model id now resolves on this
-            // peer (non-null prefabDesc in PrefabDescByModelIndex), which is what keeps Nebula's
-            // OnBeltBuilt lookup safe.
-            int tinted = 0;
-            if(CustomModel.Value) tinted = tintPrefab(pd, parseColor(TintColor.Value));
+            // Apply the chosen look. CustomModel is the master "make it distinct" switch:
+            //  • CustomModel + CustomMesh → swap in our own procedural mesh (PLS prefab kept for
+            //    ports/colliders/footprint), tinted material.
+            //  • CustomModel only        → keep the PLS mesh, just recolour its private materials.
+            //  • neither                 → untouched PLS materials (a plain clone).
+            // In every case the model id now resolves on this peer (non-null prefabDesc in
+            // PrefabDescByModelIndex), which is what keeps Nebula's OnBeltBuilt lookup safe.
+            string look;
+            if(CustomModel.Value && CustomMesh.Value) {
+                look = applyProceduralMesh(pd, parseColor(TintColor.Value));
+            } else if(CustomModel.Value) {
+                look = $"tinted {tintPrefab(pd, parseColor(TintColor.Value))} PLS materials";
+            } else {
+                look = "plain PLS clone";
+            }
 
             // Point the item at this prefabDesc so the build ghost (prefabDesc.modelIndex)
             // and gameplay flags match the placed entity, which renders via item.ModelIndex.
@@ -409,7 +430,73 @@ namespace DspUniversalDepot {
                 item.ModelIndex = _depotModelId;
             }
             Log.LogInfo($"[Depot] depot model {_depotModelId} ready (prefab='{depotModel.PrefabPath}', " +
-                $"tinted {tinted} materials, tint={(CustomModel.Value ? TintColor.Value : "off")})");
+                $"{look}, tint={(CustomModel.Value ? TintColor.Value : "off")})");
+        }
+
+        /// <summary>
+        /// Swap the depot prefabDesc's render LOD for a fully custom procedural mesh while leaving
+        /// every functional field (colliders, belt/drone ports, bounds) untouched. Placed buildings
+        /// render through GPU instancing from <c>lodMeshes[0]</c> + <c>lodVertas[0]</c>, and DSP's
+        /// instanced building shader samples geometry from the verta StructuredBuffer — so we build
+        /// a verta straight from the mesh in the same <see cref="VertType"/> the PLS used
+        /// (<see cref="DepotMesh.BuildVerta"/>), and they can never disagree. One tinted material is
+        /// derived from the PLS material so the DSP instanced shader + lighting/shadows still apply.
+        /// The PLS-cloned LOD meshes/vertas are this model's private copies (each
+        /// <c>ModelProto.Preload</c> builds its own), so destroying them never touches real stations.
+        /// Returns a short status string for the log. Throws on missing source data → caller reverts.
+        /// </summary>
+        private string applyProceduralMesh(PrefabDesc pd, Color tint) {
+            if(pd.lodMeshes == null || pd.lodMeshes.Length == 0 || pd.lodMeshes[0] == null)
+                throw new Exception("PLS prefabDesc has no lod mesh to size against");
+
+            // Capture the source material + verta layout from the PLS clone before overwriting.
+            Material srcMat = firstMat(pd.lodMaterials)
+                ?? (pd.materials != null && pd.materials.Length > 0 ? pd.materials[0] : null);
+            if(srcMat == null) throw new Exception("PLS prefabDesc has no source material");
+            Material srcBlueprint = firstMat(pd.lodBlueprintMaterials);
+            VertType vtype = (pd.lodVertas != null && pd.lodVertas.Length > 0 && pd.lodVertas[0] != null)
+                ? pd.lodVertas[0].vertexType : VertType.VNT;
+            Bounds fit = pd.lodMeshes[0].bounds;
+
+            // Build the geometry, a tinted material copy, and a matching verta.
+            Mesh mesh = DepotMesh.Build(fit, MeshDebugBox.Value);
+            Material mat = new Material(srcMat);
+            if(mat.HasProperty("_Color")) mat.SetColor("_Color", mat.GetColor("_Color") * tint);
+            if(mat.HasProperty("_TintColor")) mat.SetColor("_TintColor", tint);
+            Material blueprint = srcBlueprint != null ? new Material(srcBlueprint) : mat;
+            VertaBuffer verta = DepotMesh.BuildVerta(mesh, vtype);
+
+            // Free the PLS-cloned LOD resources we are about to replace (private copies — safe).
+            for(int i = 0; i < pd.lodMeshes.Length; i++)
+                if(pd.lodMeshes[i] != null) UnityEngine.Object.Destroy(pd.lodMeshes[i]);
+            if(pd.lodVertas != null)
+                for(int i = 0; i < pd.lodVertas.Length; i++)
+                    pd.lodVertas[i]?.Free();
+
+            // Install our single LOD. Submesh count (1) must equal lodMaterials[0].Length.
+            pd.lodCount = 1;
+            pd.lodMeshes = new Mesh[4] { mesh, null, null, null };
+            pd.lodVertas = new VertaBuffer[4] { verta, null, null, null };
+            pd.lodMaterials = new Material[4][] { new[] { mat }, null, null, null };
+            pd.lodBlueprintMaterials = new Material[4][] { new[] { blueprint }, null, null, null };
+            pd.lodSubmeshIgnores = new bool[4][] { new bool[1], null, null, null };
+            // Mirror onto the non-instanced fields for any path that reads them directly.
+            pd.mesh = mesh;
+            pd.meshes = new[] { mesh };
+            pd.materials = new[] { mat };
+
+            return $"custom mesh ({mesh.vertexCount} verts, verta {vtype}, box={MeshDebugBox.Value})";
+        }
+
+        /// <summary>First non-null material in a jagged lod-material array, or null.</summary>
+        private static Material firstMat(Material[][] arr) {
+            if(arr == null) return null;
+            for(int i = 0; i < arr.Length; i++) {
+                if(arr[i] == null) continue;
+                for(int j = 0; j < arr[i].Length; j++)
+                    if(arr[i][j] != null) return arr[i][j];
+            }
+            return null;
         }
 
         private void revertToPlsModel() {

@@ -5,6 +5,30 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-06-14
+
+### Added: a fully custom 3D model for the depot
+
+The Universal Depot now renders its own procedurally generated mesh instead of reusing the
+Planetary Logistics Station's geometry — an octagonal platform with a hexagonal silo, a tapered
+cap, a central antenna mast and four corner supply crates, so it reads as a distinct building at a
+glance.
+
+- **How it works** — the mesh is built entirely in C# (`src/DepotMesh.cs`), no external asset
+  files. Only the *rendered* geometry is swapped; the functional prefab (belt and drone ports,
+  colliders, footprint, drone docks) is still the cloned PLS, so the depot behaves exactly as
+  before. DSP draws buildings through GPU instancing where the shader samples vertex data from a
+  `VertaBuffer`, so the model ships a matching vertex buffer built straight from the mesh — keeping
+  the placed building and the build-ghost in perfect agreement.
+- **Material & tint** — the custom mesh uses a copy of the station material, so it picks up DSP's
+  normal lighting and shadows; the existing `Design/TintColor` still recolours it.
+- **New config** (section `Design`):
+  - `CustomMesh` (default `true`) — render the custom mesh. Turn off to keep the PLS mesh, just
+    tinted. Requires `CustomModel = true`.
+  - `MeshDebugBox` (default `false`) — render the model as a single plain box, a diagnostic aid.
+- **Safety** — every step is guarded; any failure falls back to a working tinted/plain PLS clone,
+  exactly like before. Purely visual: saves and multiplayer (Nebula) are unaffected.
+
 ## [0.7.3] - 2026-06-14
 
 ### Fixed: depot intake dead on Nebula clients (belt backed up)

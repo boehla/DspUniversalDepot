@@ -4,8 +4,10 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Reflection.Emit;
 using UnityEngine;
 using UnityEngine.UI;
 using xiaoye97;
@@ -36,7 +38,7 @@ namespace DspUniversalDepot {
     public class UniversalDepotPlugin : BaseUnityPlugin {
         public const string GUID = "com.boehla.dspuniversaldepot";
         public const string NAME = "DspUniversalDepot";
-        public const string VERSION = "0.7.1";
+        public const string VERSION = "0.7.2";
 
         // Nebula's API plugin GUID — kept as a literal so the no-Nebula path never touches a Nebula type.
         public const string NEBULA_API_GUID = "dsp.nebula-multiplayer-api";
@@ -765,6 +767,57 @@ namespace DspUniversalDepot {
                     $"to fit {UniversalDepotPlugin.SlotCount.Value}-slot depots");
             } catch(Exception ex) {
                 UniversalDepotPlugin.Log.LogWarning($"[Depot] brief-info icon pool patch failed: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adds the missing null-guard to vanilla <c>PlanetFactory.OnBeltBuilt</c>. That method scans
+    /// every entity within ~6 m of a newly-built belt and ends each iteration with
+    /// <c>if (PrefabDescByModelIndex[entity.modelIndex].addonType == EAddonType.Belt) …</c> — without
+    /// checking the array element for null. Every <i>other</i> site in <c>PlanetFactory</c> that
+    /// indexes <c>PrefabDescByModelIndex</c> (crafts, enemies, ground bases, …) DOES null-check it,
+    /// because the slot is legitimately null for an entity whose model proto isn't resolvable on this
+    /// machine. In multiplayer that happens whenever a peer builds an entity whose <c>modelIndex</c>
+    /// this client has no model for (model-id divergence / desync / a foreign mod's building), so the
+    /// missing guard throws <c>NullReferenceException</c> the instant a belt is placed near such an
+    /// entity — surfacing through Nebula's <c>BuildEntityRequest → BuildFinally → OnBeltBuilt</c> path
+    /// (the original crash even though the depot model is now always registered).
+    ///
+    /// We transpile the single <c>ldfld PrefabDesc::addonType</c> in OnBeltBuilt into a null-safe
+    /// helper call, restoring the same "missing model → no addon" handling the method's siblings
+    /// already use. Behaviour is byte-identical for every real entity; only the crashing null case
+    /// changes (it is skipped, as everywhere else). This is a general fix — it is not specific to the
+    /// depot, so it also covers a divergent id from any other model-adding mod.
+    /// </summary>
+    [HarmonyPatch(typeof(PlanetFactory), nameof(PlanetFactory.OnBeltBuilt))]
+    public static class OnBeltBuiltNullModelGuard {
+        private static readonly MethodInfo SafeAddonMethod =
+            AccessTools.Method(typeof(OnBeltBuiltNullModelGuard), nameof(SafeAddonType));
+
+        /// <summary>Null-safe read of <c>PrefabDesc.addonType</c> (missing model → <c>None</c>).</summary>
+        public static EAddonType SafeAddonType(PrefabDesc pd) => pd != null ? pd.addonType : EAddonType.None;
+
+        [HarmonyTranspiler]
+        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
+            int swapped = 0;
+            foreach(CodeInstruction ci in instructions) {
+                if(ci.opcode == OpCodes.Ldfld && ci.operand is FieldInfo fi
+                        && fi.Name == nameof(PrefabDesc.addonType) && fi.DeclaringType == typeof(PrefabDesc)) {
+                    // The PrefabDesc reference is already on the stack (from the preceding ldelem.ref);
+                    // swap the raw field load for a call that tolerates a null reference. Carry over any
+                    // labels/exception blocks so existing branch targets still land on this instruction.
+                    yield return new CodeInstruction(OpCodes.Call, SafeAddonMethod) { labels = ci.labels, blocks = ci.blocks };
+                    swapped++;
+                } else {
+                    yield return ci;
+                }
+            }
+            if(swapped == 1) {
+                UniversalDepotPlugin.Log.LogInfo("[Depot] OnBeltBuilt null-model guard installed.");
+            } else {
+                UniversalDepotPlugin.Log.LogWarning($"[Depot] OnBeltBuilt addonType guard: expected 1 ldfld, swapped " +
+                    $"{swapped} (game version change?) — belt-near-unresolved-model crash may persist.");
             }
         }
     }

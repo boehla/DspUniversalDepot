@@ -5,6 +5,30 @@ All notable changes to DspUniversalDepot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-06-14
+
+### Fixed: Nebula client crash building belts near a depot (the real cause)
+
+The 0.7.1 "always register the depot model" change did **not** stop the
+`NullReferenceException` in `PlanetFactory.OnBeltBuilt`. Disassembly pinned the fault to:
+
+```
+PrefabDescByModelIndex[entity.modelIndex].addonType == EAddonType.Belt   // element is null
+```
+
+This is a **latent vanilla bug**, not a depot-specific one: every *other* site in `PlanetFactory`
+that indexes `PrefabDescByModelIndex` null-checks the element first (it is legitimately null for an
+entity whose model proto can't be resolved on this machine), but `OnBeltBuilt` forgot the guard. In
+multiplayer the slot is null whenever a peer builds an entity whose `modelIndex` this client has no
+model for (model-id divergence / desync / a foreign mod's building), so placing a belt within ~6 m
+of it crashes — surfaced via Nebula's `BuildEntityRequest → BuildFinally → OnBeltBuilt`.
+
+- **Fix** — a one-instruction Harmony **transpiler** swaps the unguarded `PrefabDesc.addonType`
+  read in `OnBeltBuilt` for a null-safe helper (missing model → `EAddonType.None`), restoring the
+  same handling the method's siblings already use. Behaviour is identical for every real entity;
+  only the crashing null case is skipped. The fix is general — it also covers a divergent model id
+  from any other mod, not just the depot.
+
 ## [0.7.1] - 2026-06-14
 
 ### Fixed: Nebula client crash when building belts near a depot
